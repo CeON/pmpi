@@ -1,0 +1,2 @@
+class RawFormatError(Exception):
+    pass
