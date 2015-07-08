@@ -3,6 +3,7 @@ from uuid import UUID
 
 from src.pmpi.core import Database
 from src.pmpi import RawFormatError
+from src.pmpi.exceptions import ObjectDoesNotExist
 
 
 class Identifier:
@@ -57,9 +58,12 @@ class Identifier:
         database.put(Database.IDENTIFIERS, self.uuid.bytes, self.raw())
 
     def remove(self, database):
-        database.delete(Database.IDENTIFIERS, self.uuid.bytes)
+        try:
+            database.delete(Database.IDENTIFIERS, self.uuid.bytes)
+        except ObjectDoesNotExist:
+            raise self.DoesNotExist
 
     # Exceptions
 
-    class DoesNotExist(Exception):
+    class DoesNotExist(ObjectDoesNotExist):
         pass

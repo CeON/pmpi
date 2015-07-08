@@ -1,4 +1,5 @@
 from bsddb3 import db
+from src.pmpi.exceptions import ObjectDoesNotExist
 
 
 class Database:
@@ -26,4 +27,7 @@ class Database:
         self.__db[dbname][key] = data
 
     def delete(self, dbname, key):
-        self.__db[dbname].delete(key)
+        if key in self.__db[dbname]:
+            self.__db[dbname].delete(key)
+        else:
+            raise ObjectDoesNotExist

@@ -40,15 +40,14 @@ class TestIdentifier(TestCase):
         new_identifier = Identifier.from_raw(self.uuid, self.identifier.raw())
 
         self.assertIsInstance(new_identifier, Identifier)
-        self.assertEqual(new_identifier.address, self.identifier.address)
-        self.assertEqual(new_identifier.owners, self.identifier.owners)
-        self.assertEqual(new_identifier.revision_id, self.identifier.revision_id)
+        for attr in ('uuid', 'address', 'owners', 'revision_id'):
+            self.assertEqual(getattr(new_identifier, attr), getattr(self.identifier, attr))
 
     def test_from_wrong_raw(self):
-        with self.assertRaisesRegex(RawFormatError, 'raw input too short'):
+        with self.assertRaisesRegex(RawFormatError, "raw input too short"):
             Identifier.from_raw(self.uuid, self.identifier.raw()[:-1])  # raw without last byte
 
-        with self.assertRaisesRegex(RawFormatError, 'raw input too long'):
+        with self.assertRaisesRegex(RawFormatError, "raw input too long"):
             Identifier.from_raw(self.uuid, self.identifier.raw() + b'\x00')  # raw with additional byte
 
 
@@ -63,14 +62,14 @@ class TestIdentifierDatabase(TestCase):
         self.identifier2 = Identifier(
             uuid4(), 'http://example.com/second/', [b'second_key'], self.operation2_mock.sha256())
 
-    def test_empty(self):
+    def test_0_empty(self):
         self.assertEqual(len(Identifier.get_uuid_list(self.db)), 0)
 
-    def test_get_from_empty(self):
+    def test_1_get_from_empty(self):
         with self.assertRaises(Identifier.DoesNotExist):
             Identifier.get(self.db, self.identifier1.uuid)
 
-    def test_put_remove(self):
+    def test_2_put_remove(self):
         self.identifier1.put(self.db)
         self.identifier2.put(self.db)
 
@@ -85,6 +84,9 @@ class TestIdentifierDatabase(TestCase):
             self.assertEqual(new_id.raw(), id.raw())
 
         self.identifier1.remove(self.db)
+
+        with self.assertRaises(Identifier.DoesNotExist):
+            self.identifier1.remove(self.db)  # already removed identifier
 
         self.assertCountEqual(Identifier.get_uuid_list(self.db), [self.identifier2.uuid])
 
