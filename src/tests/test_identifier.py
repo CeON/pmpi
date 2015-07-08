@@ -4,7 +4,7 @@ from unittest import TestCase, mock
 from uuid import uuid4
 
 from src.pmpi import Identifier, Operation, RawFormatError
-from src.pmpi.core import Database
+from src.pmpi.core import Database, initialise_database, close_database
 
 
 def make_mock_operation(some_bytes):
@@ -50,48 +50,57 @@ class TestIdentifier(TestCase):
         with self.assertRaisesRegex(RawFormatError, "raw input too long"):
             Identifier.from_raw(self.uuid, self.identifier.raw() + b'\x00')  # raw with additional byte
 
+class TestNoDatabase(TestCase):
+
+    #TODO test every method
+
+    def test_no_database(self):
+        with self.assertRaisesRegex(Database.InitialisationError, "initialise database first"):
+            Identifier.get_uuid_list()
 
 class TestIdentifierDatabase(TestCase):
     def setUp(self):
         self.operation1_mock = make_mock_operation(b'operation1')
         self.operation2_mock = make_mock_operation(b'operation2')
 
-        self.db = Database('test_database_file')
+        initialise_database('test_database_file')
+
         self.identifier1 = Identifier(
             uuid4(), 'http://example.com/first/', [b'first_key'], self.operation1_mock.sha256())
         self.identifier2 = Identifier(
             uuid4(), 'http://example.com/second/', [b'second_key'], self.operation2_mock.sha256())
 
     def test_0_empty(self):
-        self.assertEqual(len(Identifier.get_uuid_list(self.db)), 0)
+        self.assertEqual(len(Identifier.get_uuid_list()), 0)
 
     def test_1_get_from_empty(self):
         with self.assertRaises(Identifier.DoesNotExist):
-            Identifier.get(self.db, self.identifier1.uuid)
+            Identifier.get(self.identifier1.uuid)
 
     def test_2_put_remove(self):
-        self.identifier1.put(self.db)
-        self.identifier2.put(self.db)
+        self.identifier1.put()
+        self.identifier2.put()
 
-        uuid_list = Identifier.get_uuid_list(self.db)
+        uuid_list = Identifier.get_uuid_list()
 
         self.assertEqual(len(uuid_list), 2)
         self.assertCountEqual(uuid_list, [id.uuid for id in [self.identifier1, self.identifier2]])
 
         for id in [self.identifier1, self.identifier2]:
-            new_id = Identifier.get(self.db, id.uuid)
+            new_id = Identifier.get(id.uuid)
             self.assertEqual(new_id.uuid, id.uuid)
             self.assertEqual(new_id.raw(), id.raw())
 
-        self.identifier1.remove(self.db)
+        self.identifier1.remove()
 
         with self.assertRaises(Identifier.DoesNotExist):
-            self.identifier1.remove(self.db)  # already removed identifier
+            self.identifier1.remove()  # already removed identifier
 
-        self.assertCountEqual(Identifier.get_uuid_list(self.db), [self.identifier2.uuid])
+        self.assertCountEqual(Identifier.get_uuid_list(), [self.identifier2.uuid])
 
         with self.assertRaises(Identifier.DoesNotExist):
-            Identifier.get(self.db, self.identifier1.uuid)
+            Identifier.get(self.identifier1.uuid)
 
     def tearDown(self):
+        close_database()
         os.remove('test_database_file')

@@ -1,9 +1,10 @@
 from io import BytesIO
 from uuid import UUID
 
-from src.pmpi.core import Database
+from src.pmpi.core import Database, database_required
 from src.pmpi import RawFormatError
 from src.pmpi.exceptions import ObjectDoesNotExist
+from src.pmpi.utils import read_bytes
 
 
 class Identifier:
@@ -26,15 +27,10 @@ class Identifier:
     def from_raw(cls, uuid, raw):
         buffer = BytesIO(raw)
 
-        def read_bytes(size):
-            x = buffer.read(size)
-            if len(x) != size:
-                raise RawFormatError("raw input too short")
-            return x
-
-        revision_id = read_bytes(32)
-        address = read_bytes(int.from_bytes(read_bytes(4), 'big')).decode('utf-8')
-        owners = [read_bytes(int.from_bytes(read_bytes(4), 'big')) for _ in range(int.from_bytes(read_bytes(4), 'big'))]
+        revision_id = read_bytes(buffer, 32)
+        address = read_bytes(buffer, int.from_bytes(read_bytes(buffer, 4), 'big')).decode('utf-8')
+        owners = [read_bytes(buffer, int.from_bytes(read_bytes(buffer, 4), 'big'))
+                  for _ in range(int.from_bytes(read_bytes(buffer, 4), 'big'))]
 
         if len(buffer.read()) > 0:
             raise RawFormatError("raw input too long")
@@ -44,19 +40,23 @@ class Identifier:
     # Database operations
 
     @classmethod
+    @database_required
     def get_uuid_list(cls, database):
         return [UUID(bytes=uuid) for uuid in database.keys(Database.IDENTIFIERS)]
 
     @classmethod
+    @database_required
     def get(cls, database, uuid):
         try:
             return Identifier.from_raw(uuid, database.get(Database.IDENTIFIERS, uuid.bytes))
         except KeyError:
             raise cls.DoesNotExist
 
+    @database_required
     def put(self, database):
         database.put(Database.IDENTIFIERS, self.uuid.bytes, self.raw())
 
+    @database_required
     def remove(self, database):
         try:
             database.delete(Database.IDENTIFIERS, self.uuid.bytes)

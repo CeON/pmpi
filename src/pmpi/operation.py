@@ -1,10 +1,58 @@
-from src.pmpi.exceptions import ObjectDoesNotExist
+from hashlib import sha256
+from io import BytesIO
+from uuid import UUID
+from ecdsa.keys import VerifyingKey, BadSignatureError
+from src.pmpi.core import Database, database_required
+from src.pmpi.exceptions import ObjectDoesNotExist, RawFormatError
+from src.pmpi.utils import read_bytes
 
+
+class RevisionID:
+    _id = None
+    _operation = None
+
+    @classmethod
+    def from_id(cls, id):
+        rev = RevisionID()
+        rev._id = id
+        return rev
+
+    @classmethod
+    def from_operation(cls, operation):
+        rev = RevisionID()
+        rev._id = operation.sha256()
+        rev._operation = operation
+        return rev
+
+    def __bytes__(self):
+        return self._id if self._id is not None else bytes(32)
+
+    def __eq__(self, other):
+        return bytes(self) == bytes(other)
+
+    # TODO def get(self):
+    def get_id(self):
+        return self._id
+
+    def get_operation(self):
+        if self._operation is not None:
+            return self._operation
+        if self._id is not None:
+            return Operation.get(self._id)
+
+        return None
+
+    def is_None(self):
+        return self._id is None and self._operation is None
 
 class Operation:
     VERSION = 1
 
     def __init__(self, previous_revision_id, uuid, address, owners, public_key):
+        # if previous_revision_id is not None:
+        #     self.previous_revision_id = previous_revision_id
+        # else:
+        #     self.previous_revision_id = RevisionID()
         self.previous_revision_id = previous_revision_id
         self.uuid = uuid
         self.address = address
@@ -12,48 +60,135 @@ class Operation:
         self.public_key = public_key
         self.signature = None
 
+    def owners_der(self):
+        return [owner.to_der() for owner in self.owners]
+
     def verify(self):
-        pass
+        raw = self.raw()
+
+        try:
+            self.public_key.verify(self.signature, self.unsigned_raw())  # FIXME , hashfunc=sha256)
+        except BadSignatureError:
+            raise self.VerifyError("wrong signature")
+
+        # TODO OwnershipError
+
+        try:
+            prev_operation = self.previous_revision_id.get_operation()
+            if prev_operation is not None:
+                if self.public_key.to_der() not in prev_operation.owners_der():
+                    raise self.OwnershipError
+                if self.uuid != prev_operation.uuid:
+                    raise self.VerifyError('uuid mismatch')
+        except self.DoesNotExist:
+            raise self.ChainError("previous_revision_id does not exsist")
+
+        return True
 
     def sha256(self):
-        pass
+        return sha256(self.raw()).digest()
 
     # Serialization and deserialization
 
     def unsigned_raw(self):
         ret = self.VERSION.to_bytes(4, 'big')
-        ret += self.previous_revision_id if self.previous_revision_id is not None else bytes(32)
+        ret += bytes(self.previous_revision_id)
         ret += self.uuid.bytes
         ret += len(self.address).to_bytes(4, 'big')
         ret += bytes(self.address, 'utf-8')
         ret += len(self.owners).to_bytes(4, 'big')
-        ret += b''.join([len(owner).to_bytes(4, 'big') + owner for owner in self.owners])
-        ret += len(self.public_key.to_string()).to_bytes(4, 'big')
-        ret += self.public_key.to_string()
+        ret += b''.join([len(owner).to_bytes(4, 'big') + owner for owner in self.owners_der()])
+        ret += len(self.public_key.to_der()).to_bytes(4, 'big')
+        ret += self.public_key.to_der()
         return ret
 
     def raw(self):
-        return self.unsigned_raw() + self.signature
+        # TODO rzuć krzesłem, jak ktoś próbuje odpalić z self.signature == None
+        if self.signature is not None:
+            return self.unsigned_raw() + len(self.signature).to_bytes(4, 'big') + self.signature
+        else:
+            raise self.VerifyError("operation is not signed")
 
     @classmethod
     def from_raw(cls, revision_id, raw):
-        pass
+        if len(revision_id) != 32:
+            raise cls.VerifyError("wrong revision_id")
+
+        buffer = BytesIO(raw)
+
+        if int.from_bytes(read_bytes(buffer, 4), 'big') != cls.VERSION:
+            raise RawFormatError("version number mismatch")
+
+        previous_revision_id = RevisionID.from_id(read_bytes(buffer, 32))
+        uuid = UUID(bytes=read_bytes(buffer, 16))
+        address = read_bytes(buffer, int.from_bytes(read_bytes(buffer, 4), 'big')).decode('utf-8')
+        owners = [VerifyingKey.from_der(read_bytes(buffer, int.from_bytes(read_bytes(buffer, 4), 'big')))
+                  for _ in range(int.from_bytes(read_bytes(buffer, 4), 'big'))]
+        public_key = VerifyingKey.from_der(read_bytes(buffer, int.from_bytes(read_bytes(buffer, 4), 'big')))
+        signature = read_bytes(buffer, int.from_bytes(read_bytes(buffer, 4), 'big'))
+
+        if len(buffer.read()) > 0:
+            raise RawFormatError("raw input too long")
+
+        if int.from_bytes(previous_revision_id.get_id(), 'big') == 0:
+            previous_revision_id = RevisionID()
+
+        operation = cls(previous_revision_id, uuid, address, owners, public_key)
+        operation.signature = signature
+
+        operation.verify()
+
+        if revision_id != operation.sha256():
+            raise cls.VerifyError("wrong revision_id")
+
+        return operation
 
     # Database operations
 
     @classmethod
+    @database_required
     def get_revision_id_list(cls, database):
-        pass
+        return [revision_id for revision_id in database.keys(Database.OPERATIONS)] # FIXME chyba to niepotrzebne
 
     @classmethod
+    @database_required
     def get(cls, database, revision_id):
-        pass
+        try:
+            return Operation.from_raw(revision_id, database.get(Database.OPERATIONS, revision_id))
+        except KeyError:
+            raise cls.DoesNotExist
 
+    @database_required
     def put(self, database):
-        pass
+        self.verify()
+        revision_id = self.sha256()
 
+        # FIXME naive algorithm !!!
+        for rev in Operation.get_revision_id_list():
+            op = Operation.get(rev)
+            if rev != revision_id and op.uuid == self.uuid and self.previous_revision_id.is_None():
+                raise Operation.ChainError("trying to create minting operation for exsisting uuid")
+
+        try:
+            self.get(revision_id)
+            raise self.ChainError("revision_id already in database")
+        except self.DoesNotExist:
+            database.put(Database.OPERATIONS, self.sha256(), self.raw())
+
+    @database_required
     def remove(self, database):
-        pass
+        revision_id = self.sha256()
+
+        # FIXME naive algorithm !!!
+        for rev in Operation.get_revision_id_list():
+            op = Operation.get(rev)
+            if op.previous_revision_id.get_id() == revision_id:
+                raise Operation.ChainError("can't remove: blocked by another operation")
+
+        try:
+            database.delete(Database.OPERATIONS, revision_id)
+        except ObjectDoesNotExist:
+            raise self.DoesNotExist
 
     # Exceptions
 

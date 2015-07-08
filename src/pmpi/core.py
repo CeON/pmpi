@@ -1,6 +1,7 @@
 from bsddb3 import db
 from src.pmpi.exceptions import ObjectDoesNotExist
 
+__database = None
 
 class Database:
     IDENTIFIERS = 'identifiers'
@@ -31,3 +32,46 @@ class Database:
             self.__db[dbname].delete(key)
         else:
             raise ObjectDoesNotExist
+
+    def close(self):
+        for dbname in self.DBNAMES:
+            self.__db[dbname].close()
+
+    class InitialisationError(Exception):
+        pass
+
+# class UsingDatabase:
+#     database = None
+#
+#     @classmethod
+#     def initialise_database(cls, database):
+#         cls.database = database
+#
+#     class DatabaseRequired(Exception):
+#         pass
+#
+#
+
+def initialise_database(filename):
+    global __database
+
+    if __database is not None:  # TODO is it necessary?
+        close_database()
+    __database = Database(filename)
+
+def close_database():
+    global __database
+
+    if __database is not None:
+        __database.close()
+        __database = None
+
+def database_required(function):
+    global __database
+
+    def wrapper(cls, *args):
+        if __database is not None:
+            return function(cls, __database, *args)
+        else:
+            raise Database.InitialisationError("initialise database first")
+    return wrapper
