@@ -1,13 +1,17 @@
 from io import BytesIO
 from uuid import UUID
+from ecdsa.keys import VerifyingKey
 
 from src.pmpi.core import Database, database_required
 from src.pmpi import RawFormatError
 from src.pmpi.exceptions import ObjectDoesNotExist
+from src.pmpi.operation import OperationRevID
 from src.pmpi.utils import read_bytes
 
 
 class Identifier:
+    # TODO change type of revision_id to OperationRevID!
+
     def __init__(self, uuid, address, owners, revision_id):
         self.uuid = uuid
         self.address = address
@@ -16,11 +20,14 @@ class Identifier:
 
     # Serialization and deserialization
 
+    def owners_der(self) -> list:
+        return [owner.to_der() for owner in self.owners]
+
     def raw(self):
         ret = self.revision_id
         ret += len(self.address).to_bytes(4, 'big') + bytes(self.address, 'utf-8')
         ret += len(self.owners).to_bytes(4, 'big')
-        ret += b''.join([len(owner).to_bytes(4, 'big') + owner for owner in self.owners])
+        ret += b''.join([len(owner).to_bytes(4, 'big') + owner for owner in self.owners_der()])
         return ret
 
     @classmethod
@@ -29,7 +36,7 @@ class Identifier:
 
         revision_id = read_bytes(buffer, 32)
         address = read_bytes(buffer, int.from_bytes(read_bytes(buffer, 4), 'big')).decode('utf-8')
-        owners = [read_bytes(buffer, int.from_bytes(read_bytes(buffer, 4), 'big'))
+        owners = [VerifyingKey.from_der(read_bytes(buffer, int.from_bytes(read_bytes(buffer, 4), 'big')))
                   for _ in range(int.from_bytes(read_bytes(buffer, 4), 'big'))]
 
         if len(buffer.read()) > 0:

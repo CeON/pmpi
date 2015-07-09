@@ -3,6 +3,7 @@ from src.pmpi.exceptions import ObjectDoesNotExist
 
 __database = None
 
+
 class Database:
     IDENTIFIERS = 'identifiers'
     OPERATIONS = 'operations'
@@ -40,6 +41,7 @@ class Database:
     class InitialisationError(Exception):
         pass
 
+
 # class UsingDatabase:
 #     database = None
 #
@@ -52,6 +54,7 @@ class Database:
 #
 #
 
+
 def initialise_database(filename):
     global __database
 
@@ -59,12 +62,14 @@ def initialise_database(filename):
         close_database()
     __database = Database(filename)
 
+
 def close_database():
     global __database
 
     if __database is not None:
         __database.close()
         __database = None
+
 
 def database_required(function):
     global __database
@@ -74,4 +79,5 @@ def database_required(function):
             return function(cls, __database, *args)
         else:
             raise Database.InitialisationError("initialise database first")
+
     return wrapper
