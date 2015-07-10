@@ -1,7 +1,10 @@
+from io import BytesIO
+from ecdsa.keys import VerifyingKey, BadSignatureError
 from src.pmpi.core import database_required
-from src.pmpi.exceptions import ObjectDoesNotExist
+from src.pmpi.exceptions import ObjectDoesNotExist, RawFormatError
+from src.pmpi.operation import Operation
 from src.pmpi.revision_id import AbstractRevisionID
-from src.pmpi.utils import double_sha
+from src.pmpi.utils import double_sha, read_bytes, read_uint32, read_sized_bytes
 
 
 class BlockRevID(AbstractRevisionID):
@@ -10,6 +13,19 @@ class BlockRevID(AbstractRevisionID):
 
 
 class Block:
+    """
+
+    :type previous_block: BlockRevID
+    :type timestamp: int
+    :type operations: list[Operation]
+    :type public_key: VerifyingKey
+    :type signature: NoneType | bytes
+    :type difficulty: int
+    :type padding: int
+    :type checksum: NoneType | bytes
+    :type operations_limit: int
+    """
+
     VERSION = 1
 
     def __init__(self, previous_block, timestamp, operations):
@@ -36,13 +52,18 @@ class Block:
 
     def is_signed(self):
         if self.signature is not None:
+            try:
+                self.public_key.verify(self.signature, self.unsigned_raw())
+            except BadSignatureError:
+                raise self.VerifyError("wrong signature")
+
             return True
         else:
             raise self.VerifyError("block is not signed")
 
     def mine(self):  # FIXME method currently for testing purposes
         unmined_raw = self.unmined_raw()
-        assert 0 < self.difficulty < 256 # TODO ...
+        assert 0 < self.difficulty < 256  # TODO ...
         target = ((1 << 256 - self.difficulty) - 1).to_bytes(32, 'big')
 
         self.padding = 0
@@ -53,10 +74,23 @@ class Block:
 
         self.checksum = self.counted_checksum()
 
-        # raise NotImplementedError
+    def verify(self):  # FIXME
+        if self.is_signed():
+            for op in self.operations:
+                op.verify()
+            # TODO verify, if operations don't make trees instead of chains
 
-    def verify(self):  # TODO
-        raise NotImplementedError
+            try:
+                prev_block = self.previous_block.get_revision()
+                if prev_block is not None:
+                    pass  # TODO check itegrity of operation chains
+            except self.DoesNotExist:
+                raise self.ChainError("previous_revision_id does not exist")
+
+            # TODO check: len(self.operations) <= self.operations_limit <= CALC_OP_LIMIT_FOR_MINTER(self.public_key)
+            # TODO check: difficulty is correctly set -- check block depth and self.difficulty <= DIFF_AT_DEPTH(depth)
+
+            return True
 
     def sha256(self):
         return double_sha(self.raw())
@@ -64,7 +98,11 @@ class Block:
     # Serialization and deserialization
 
     def operations_raw(self):
-        return len(self.operations).to_bytes(4, 'big') + b''.join([op.raw() for op in self.operations])
+        try:
+            return len(self.operations).to_bytes(4, 'big') + b''.join(
+                [len(op).to_bytes(4, 'big') + op for op in [op.raw() for op in self.operations]])
+        except Operation.VerifyError:
+            raise self.VerifyError("at least one of the operations is not properly signed")
 
     def unmined_raw(self):
         ret = self.VERSION.to_bytes(4, 'big')
@@ -89,7 +127,46 @@ class Block:
 
     @classmethod
     def from_raw(cls, revision_id, raw):  # FIXME
-        raise NotImplementedError  # TODO
+        if len(revision_id) != 32:
+            raise cls.VerifyError("wrong revision_id")
+
+        buffer = BytesIO(raw)
+
+        if read_uint32(buffer) != cls.VERSION:
+            raise RawFormatError("version number mismatch")
+
+        previous_block_id = BlockRevID.from_id(read_bytes(buffer, 32))
+        timestamp = read_uint32(buffer)
+        operations_limit = read_uint32(buffer)
+        operations = [Operation.from_raw(double_sha(op), op) for op in
+                      [read_sized_bytes(buffer) for _ in range(read_uint32(buffer))]]
+        # TODO is there any reason why we shouldn't use double_sha(op) here?
+        difficulty = read_uint32(buffer)
+        padding = read_uint32(buffer)
+        checksum = read_bytes(buffer, 32)
+        public_key = VerifyingKey.from_der(read_sized_bytes(buffer))
+        signature = read_sized_bytes(buffer)
+
+        if len(buffer.read()) > 0:
+            raise RawFormatError("raw input too long")
+
+        if int.from_bytes(previous_block_id.get_id(), 'big') == 0:
+            previous_block_id = BlockRevID()
+
+        block = cls(previous_block_id, timestamp, operations)
+        block.operations_limit = operations_limit
+        block.difficulty = difficulty
+        block.padding = padding
+        block.checksum = checksum
+        block.public_key = public_key
+        block.signature = signature
+
+        block.verify()
+
+        if revision_id != block.sha256():
+            raise cls.VerifyError("wrong revision_id")
+
+        return block
 
     # Database operations
 
@@ -111,6 +188,9 @@ class Block:
         raise NotImplementedError  # TODO
 
     # Exceptions
+
+    class ChainError(Exception):
+        pass
 
     class DoesNotExist(ObjectDoesNotExist):
         pass

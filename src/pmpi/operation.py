@@ -6,7 +6,7 @@ from ecdsa.keys import VerifyingKey, BadSignatureError
 from src.pmpi.core import Database, database_required
 from src.pmpi.exceptions import ObjectDoesNotExist, RawFormatError
 from src.pmpi.revision_id import AbstractRevisionID
-from src.pmpi.utils import read_bytes, double_sha
+from src.pmpi.utils import read_bytes, double_sha, read_uint32, read_string, read_sized_bytes
 
 
 class OperationRevID(AbstractRevisionID):
@@ -15,6 +15,16 @@ class OperationRevID(AbstractRevisionID):
 
 
 class Operation:
+    """
+    
+    :type previous_operation: OperationRevID
+    :type uuid: UUID
+    :type address: str
+    :type owners: list[VerifyingKey]
+    :type public_key: NoneType | VerifyingKey
+    :type signature: NoneType | bytes
+    """
+
     VERSION = 1
 
     def __init__(self, previous_operation, uuid, address, owners):
@@ -27,17 +37,17 @@ class Operation:
 
     def is_signed(self):
         if self.signature is not None:
+            try:
+                self.public_key.verify(self.signature, self.unsigned_raw())  # FIXME? , hashfunc=sha256)
+            except BadSignatureError:
+                raise self.VerifyError("wrong signature")
+
             return True
         else:
             raise self.VerifyError("operation is not signed")
 
     def verify(self):
         if self.is_signed():
-            try:
-                self.public_key.verify(self.signature, self.unsigned_raw())  # FIXME? , hashfunc=sha256)
-            except BadSignatureError:
-                raise self.VerifyError("wrong signature")
-
             if len(self.owners_der()) != len(set(self.owners_der())):
                 raise self.VerifyError("duplicated owners")
 
@@ -50,7 +60,7 @@ class Operation:
                     if self.uuid != prev_operation.uuid:
                         raise self.VerifyError("uuid mismatch")
 
-                    # TODO check if prev_operation already exist!
+                        # TODO check if prev_operation already exist!
 
             except self.DoesNotExist:
                 raise self.ChainError("previous_revision_id does not exsist")
@@ -91,16 +101,15 @@ class Operation:
 
         buffer = BytesIO(raw)
 
-        if int.from_bytes(read_bytes(buffer, 4), 'big') != cls.VERSION:
+        if read_uint32(buffer) != cls.VERSION:
             raise RawFormatError("version number mismatch")
 
         previous_revision_id = OperationRevID.from_id(read_bytes(buffer, 32))
         uuid = UUID(bytes=read_bytes(buffer, 16))
-        address = read_bytes(buffer, int.from_bytes(read_bytes(buffer, 4), 'big')).decode('utf-8')
-        owners = [VerifyingKey.from_der(read_bytes(buffer, int.from_bytes(read_bytes(buffer, 4), 'big')))
-                  for _ in range(int.from_bytes(read_bytes(buffer, 4), 'big'))]
-        public_key = VerifyingKey.from_der(read_bytes(buffer, int.from_bytes(read_bytes(buffer, 4), 'big')))
-        signature = read_bytes(buffer, int.from_bytes(read_bytes(buffer, 4), 'big'))
+        address = read_string(buffer)
+        owners = [VerifyingKey.from_der(read_sized_bytes(buffer)) for _ in range(read_uint32(buffer))]
+        public_key = VerifyingKey.from_der(read_sized_bytes(buffer))
+        signature = read_sized_bytes(buffer)
 
         if len(buffer.read()) > 0:
             raise RawFormatError("raw input too long")

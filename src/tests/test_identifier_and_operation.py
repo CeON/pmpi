@@ -3,7 +3,7 @@ from unittest.case import TestCase
 from uuid import uuid4
 from ecdsa.keys import SigningKey
 from src.pmpi.core import initialise_database, close_database
-from src.pmpi.operation import Operation
+from src.pmpi.operation import Operation, OperationRevID
 from src.tests.test_operation import sign_operation
 
 
@@ -17,23 +17,26 @@ class TestOperationChain(TestCase):
 
     def add_operations_step1(self):
         ops = [
-            Operation(None, self.uuids[0], 'http://example1.com/', [self.public_keys[0]]),
-            Operation(None, self.uuids[1], 'http://example2.com/', [self.public_keys[1]]),
+            Operation(OperationRevID(), self.uuids[0], 'http://example1.com/', [self.public_keys[0]]),
+            Operation(OperationRevID(), self.uuids[1], 'http://example2.com/', [self.public_keys[1]]),
         ]
 
         sign_operation(self.public_keys[0], self.private_keys[0], ops[0])
         sign_operation(self.public_keys[0], self.private_keys[0], ops[1])
 
         ops.extend([
-            Operation(ops[0], self.uuids[0], 'http://example1.com/v2/', [self.public_keys[0]]),
-            Operation(ops[1], self.uuids[1], 'http://example2.com/v2/', [self.public_keys[1]])
+            Operation(OperationRevID.from_revision(ops[0]), self.uuids[0],
+                      'http://example1.com/v2/', [self.public_keys[0]]),
+            Operation(OperationRevID.from_revision(ops[1]), self.uuids[1],
+                      'http://example2.com/v2/', [self.public_keys[1]])
         ])
 
         sign_operation(self.public_keys[0], self.private_keys[0], ops[2])
         sign_operation(self.public_keys[0], self.private_keys[0], ops[3])
 
         ops.append(
-            Operation(ops[3], self.uuids[1], 'http://example2.com/v3/', [self.public_keys[1]])
+            Operation(OperationRevID.from_revision(ops[3]), self.uuids[1],
+                      'http://example2.com/v3/', [self.public_keys[1]])
         )
 
         sign_operation(self.public_keys[1], self.private_keys[1], ops[4])
@@ -42,7 +45,8 @@ class TestOperationChain(TestCase):
 
     def add_operations_step2(self, ops):
         ops.extend([
-            Operation(None, self.uuids[2], 'http://example3.com/', [self.public_keys[1], self.public_keys[2]]),
+            Operation(OperationRevID(), self.uuids[2],
+                      'http://example3.com/', [self.public_keys[1], self.public_keys[2]]),
             Operation(ops[2], self.uuids[0], 'http://example1.com/v3/', [self.public_keys[0], self.public_keys[2]])
         ])
 

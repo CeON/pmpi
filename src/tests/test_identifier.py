@@ -74,8 +74,6 @@ class TestNoDatabase(TestCase):
             identifier.remove()
 
 
-
-
 class TestIdentifierDatabase(TestCase):
     def setUp(self):
         self.operation1_mock = make_mock_operation(b'operation1')

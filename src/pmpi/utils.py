@@ -9,5 +9,17 @@ def read_bytes(buffer, size):
     return x
 
 
+def read_uint32(buffer):
+    return int.from_bytes(read_bytes(buffer, 4), 'big')
+
+
+def read_sized_bytes(buffer):
+    return read_bytes(buffer, read_uint32(buffer))
+
+
+def read_string(buffer):
+    return read_sized_bytes(buffer).decode('utf-8')
+
+
 def double_sha(b):
     return sha256(sha256(b).digest()).digest()

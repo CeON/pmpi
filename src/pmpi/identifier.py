@@ -6,7 +6,7 @@ from src.pmpi.core import Database, database_required
 from src.pmpi import RawFormatError
 from src.pmpi.exceptions import ObjectDoesNotExist
 from src.pmpi.operation import OperationRevID
-from src.pmpi.utils import read_bytes
+from src.pmpi.utils import read_bytes, read_string, read_sized_bytes, read_uint32
 
 
 class Identifier:
@@ -30,6 +30,10 @@ class Identifier:
         return [owner.to_der() for owner in self.owners]
 
     def raw(self):
+        """
+        :rtype : bytes
+        :return: Raw identifier
+        """
         ret = self.operation_rev_id.get_id()
         ret += len(self.address).to_bytes(4, 'big') + bytes(self.address, 'utf-8')
         ret += len(self.owners).to_bytes(4, 'big')
@@ -41,9 +45,8 @@ class Identifier:
         buffer = BytesIO(raw)
 
         revision_id = OperationRevID.from_id(read_bytes(buffer, 32))
-        address = read_bytes(buffer, int.from_bytes(read_bytes(buffer, 4), 'big')).decode('utf-8')
-        owners = [VerifyingKey.from_der(read_bytes(buffer, int.from_bytes(read_bytes(buffer, 4), 'big')))
-                  for _ in range(int.from_bytes(read_bytes(buffer, 4), 'big'))]
+        address = read_string(buffer)
+        owners = [VerifyingKey.from_der(read_sized_bytes(buffer)) for _ in range(read_uint32(buffer))]
 
         if len(buffer.read()) > 0:
             raise RawFormatError("raw input too long")

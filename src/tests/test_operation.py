@@ -131,7 +131,7 @@ class TestMultipleOperations(TestCase):
         self.operation[0].verify()
 
     def test_1_operation(self):
-        sign_operation(self.public_keys[0], self.private_keys[1], self.operation[0])
+        sign_operation(self.public_keys[0], self.private_keys[0], self.operation[0])
         self.operation[1] = Operation(OperationRevID.from_revision(self.operation[0]), self.operation[0].uuid,
                                       'http://illegal.example.com/', [self.public_keys[2]])
 

@@ -38,7 +38,8 @@ class TestSingleBlock(TestCase):
         self.assertEqual(self.block.timestamp, self.timestamp)
         self.assertEqual(self.block.operations, self.operations)
         self.assertEqual(self.block.operations_raw(),
-                         len(self.operations).to_bytes(4, 'big') + b''.join([op.raw() for op in self.operations]))
+                         len(self.operations).to_bytes(4, 'big') + b''.join(
+                             [len(op).to_bytes(4, 'big') + op for op in [op.raw() for op in self.operations]]))
 
     def test_unmined_raw(self):
         unmined_raw = self.block.unmined_raw()
@@ -49,8 +50,7 @@ class TestSingleBlock(TestCase):
                          bytes(BlockRevID()) +
                          self.timestamp.to_bytes(4, 'big') +
                          self.block.operations_limit.to_bytes(4, 'big') +
-                         len(self.operations).to_bytes(4, 'big') +
-                         b''.join([op.raw() for op in self.operations]) +
+                         self.block.operations_raw() +
                          self.block.difficulty.to_bytes(4, 'big') +
                          self.block.padding.to_bytes(4, 'big')  # TODO czy tyle tego miejsca?!
                          )
@@ -108,4 +108,7 @@ class TestSingleBlock(TestCase):
             Block.from_raw(sha256(b'wrong hash').digest(), raw).verify()
 
     def test_unsigned_operation(self):
-        raise NotImplementedError
+        self.block.operations[0].address = 'http://different.example.com/'
+
+        with self.assertRaisesRegex(Block.VerifyError, "at least one of the operations is not properly signed"):
+            self.block.unmined_raw()
