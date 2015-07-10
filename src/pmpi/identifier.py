@@ -10,13 +10,19 @@ from src.pmpi.utils import read_bytes
 
 
 class Identifier:
-    # TODO change type of revision_id to OperationRevID!
+    """
+    :type uuid: UUID
+    :type address: str
+    :type owners: list[VerifyingKey]
+    :type operation_rev_id: OperationRevID
+    """
 
-    def __init__(self, uuid, address, owners, revision_id):
+    def __init__(self, uuid, address, owners, operation_rev_id):
+
         self.uuid = uuid
         self.address = address
         self.owners = owners
-        self.revision_id = revision_id
+        self.operation_rev_id = operation_rev_id
 
     # Serialization and deserialization
 
@@ -24,7 +30,7 @@ class Identifier:
         return [owner.to_der() for owner in self.owners]
 
     def raw(self):
-        ret = self.revision_id
+        ret = self.operation_rev_id.get_id()
         ret += len(self.address).to_bytes(4, 'big') + bytes(self.address, 'utf-8')
         ret += len(self.owners).to_bytes(4, 'big')
         ret += b''.join([len(owner).to_bytes(4, 'big') + owner for owner in self.owners_der()])
@@ -34,7 +40,7 @@ class Identifier:
     def from_raw(cls, uuid, raw):
         buffer = BytesIO(raw)
 
-        revision_id = read_bytes(buffer, 32)
+        revision_id = OperationRevID.from_id(read_bytes(buffer, 32))
         address = read_bytes(buffer, int.from_bytes(read_bytes(buffer, 4), 'big')).decode('utf-8')
         owners = [VerifyingKey.from_der(read_bytes(buffer, int.from_bytes(read_bytes(buffer, 4), 'big')))
                   for _ in range(int.from_bytes(read_bytes(buffer, 4), 'big'))]

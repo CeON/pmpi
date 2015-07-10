@@ -1,4 +1,3 @@
-import hashlib
 import os
 from unittest import TestCase, mock
 from uuid import uuid4
@@ -6,11 +5,13 @@ from ecdsa.keys import SigningKey
 
 from src.pmpi import Identifier, Operation, RawFormatError
 from src.pmpi.core import Database, initialise_database, close_database
+from src.pmpi.operation import OperationRevID
+from src.pmpi.utils import double_sha
 
 
 def make_mock_operation(some_bytes):
     operation = mock.Mock(Operation)
-    operation.sha256 = mock.MagicMock(return_value=hashlib.sha256(some_bytes).digest())
+    operation.sha256 = mock.MagicMock(return_value=double_sha(some_bytes))
     return operation
 
 
@@ -20,13 +21,13 @@ class TestIdentifier(TestCase):
         self.uuid = uuid4()
         self.public_keys = [SigningKey.generate().get_verifying_key(), SigningKey.generate().get_verifying_key()]
         self.identifier = Identifier(self.uuid, 'http://example.com/', self.public_keys,
-                                     self.operation_mock.sha256())
+                                     OperationRevID.from_id(self.operation_mock.sha256()))
 
     def test_fields(self):
         self.assertEqual(self.identifier.uuid, self.uuid)
         self.assertEqual(self.identifier.address, 'http://example.com/')
         self.assertEqual(self.identifier.owners, self.public_keys)
-        self.assertEqual(self.identifier.revision_id, self.operation_mock.sha256())
+        self.assertEqual(self.identifier.operation_rev_id, OperationRevID.from_id(self.operation_mock.sha256()))
         self.assertEqual(len(self.operation_mock.sha256()), 32)
 
     def test_raw(self):
@@ -42,7 +43,7 @@ class TestIdentifier(TestCase):
         new_identifier = Identifier.from_raw(self.uuid, self.identifier.raw())
 
         self.assertIsInstance(new_identifier, Identifier)
-        for attr in ('uuid', 'address', 'revision_id'):
+        for attr in ('uuid', 'address', 'operation_rev_id'):
             self.assertEqual(getattr(new_identifier, attr), getattr(self.identifier, attr))
         self.assertEqual(new_identifier.owners_der(), self.identifier.owners_der())
 
@@ -55,11 +56,24 @@ class TestIdentifier(TestCase):
 
 
 class TestNoDatabase(TestCase):
-    # TODO test every method
 
     def test_no_database(self):
         with self.assertRaisesRegex(Database.InitialisationError, "initialise database first"):
             Identifier.get_uuid_list()
+
+        with self.assertRaisesRegex(Database.InitialisationError, "initialise database first"):
+            Identifier.get(uuid4())
+
+        identifier = Identifier(uuid4(), 'http://example.com/', [SigningKey.generate().get_verifying_key()],
+                                OperationRevID())
+
+        with self.assertRaisesRegex(Database.InitialisationError, "initialise database first"):
+            identifier.put()
+
+        with self.assertRaisesRegex(Database.InitialisationError, "initialise database first"):
+            identifier.remove()
+
+
 
 
 class TestIdentifierDatabase(TestCase):
@@ -71,10 +85,10 @@ class TestIdentifierDatabase(TestCase):
 
         self.identifier1 = Identifier(
             uuid4(), 'http://example.com/first/', [SigningKey.generate().get_verifying_key()],
-            self.operation1_mock.sha256())
+            OperationRevID.from_id(self.operation1_mock.sha256()))
         self.identifier2 = Identifier(
             uuid4(), 'http://example.com/second/', [SigningKey.generate().get_verifying_key()],
-            self.operation2_mock.sha256())
+            OperationRevID.from_id(self.operation2_mock.sha256()))
 
     def test_0_empty(self):
         self.assertEqual(len(Identifier.get_uuid_list()), 0)

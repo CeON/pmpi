@@ -1,4 +1,3 @@
-from hashlib import sha256
 from io import BytesIO
 from uuid import UUID
 
@@ -7,7 +6,7 @@ from ecdsa.keys import VerifyingKey, BadSignatureError
 from src.pmpi.core import Database, database_required
 from src.pmpi.exceptions import ObjectDoesNotExist, RawFormatError
 from src.pmpi.revision_id import AbstractRevisionID
-from src.pmpi.utils import read_bytes
+from src.pmpi.utils import read_bytes, double_sha
 
 
 class OperationRevID(AbstractRevisionID):
@@ -18,16 +17,12 @@ class OperationRevID(AbstractRevisionID):
 class Operation:
     VERSION = 1
 
-    def __init__(self, previous_revision_id, uuid, address, owners, public_key):
-        # if previous_revision_id is not None:
-        #     self.previous_revision_id = previous_revision_id
-        # else:
-        #     self.previous_revision_id = RevisionID()
-        self.previous_revision_id = previous_revision_id
+    def __init__(self, previous_operation, uuid, address, owners):
+        self.previous_operation = previous_operation
         self.uuid = uuid
         self.address = address
         self.owners = owners
-        self.public_key = public_key
+        self.public_key = None
         self.signature = None
 
     def is_signed(self):
@@ -47,7 +42,7 @@ class Operation:
                 raise self.VerifyError("duplicated owners")
 
             try:
-                prev_operation = self.previous_revision_id.get_revision()
+                prev_operation = self.previous_operation.get_revision()
                 if prev_operation is not None:
                     if self.public_key.to_der() not in prev_operation.owners_der():
                         raise self.OwnershipError
@@ -55,13 +50,15 @@ class Operation:
                     if self.uuid != prev_operation.uuid:
                         raise self.VerifyError("uuid mismatch")
 
+                    # TODO check if prev_operation already exist!
+
             except self.DoesNotExist:
                 raise self.ChainError("previous_revision_id does not exsist")
 
         return True
 
     def sha256(self):
-        return sha256(self.raw()).digest()
+        return double_sha(self.raw())
 
     # Serialization and deserialization
 
@@ -69,8 +66,11 @@ class Operation:
         return [owner.to_der() for owner in self.owners]
 
     def unsigned_raw(self):
+        if self.public_key is None:
+            raise self.VerifyError("operation is not signed")
+
         ret = self.VERSION.to_bytes(4, 'big')
-        ret += bytes(self.previous_revision_id)
+        ret += bytes(self.previous_operation)
         ret += self.uuid.bytes
         ret += len(self.address).to_bytes(4, 'big')
         ret += bytes(self.address, 'utf-8')
@@ -108,7 +108,8 @@ class Operation:
         if int.from_bytes(previous_revision_id.get_id(), 'big') == 0:
             previous_revision_id = OperationRevID()
 
-        operation = cls(previous_revision_id, uuid, address, owners, public_key)
+        operation = cls(previous_revision_id, uuid, address, owners)
+        operation.public_key = public_key
         operation.signature = signature
 
         operation.verify()
@@ -123,11 +124,11 @@ class Operation:
     @classmethod
     @database_required
     def get_revision_id_list(cls, database):
-        return [revision_id for revision_id in database.keys(Database.OPERATIONS)]  # FIXME chyba to niepotrzebne
+        return database.keys(Database.OPERATIONS)
 
     @classmethod
     @database_required
-    def get(cls, database, revision_id):  # FIXME ALE HEHESZKI -> int
+    def get(cls, database, revision_id):
         try:
             return Operation.from_raw(revision_id, database.get(Database.OPERATIONS, revision_id))
         except KeyError:
@@ -141,7 +142,7 @@ class Operation:
         # FIXME naive algorithm !!!
         for rev in Operation.get_revision_id_list():
             op = Operation.get(rev)
-            if rev != revision_id and op.uuid == self.uuid and self.previous_revision_id.is_none():
+            if rev != revision_id and op.uuid == self.uuid and self.previous_operation.is_none():
                 raise Operation.ChainError("trying to create minting operation for exsisting uuid")
 
         try:
@@ -157,7 +158,7 @@ class Operation:
         # FIXME naive algorithm !!!
         for rev in Operation.get_revision_id_list():
             op = Operation.get(rev)
-            if op.previous_revision_id.get_id() == revision_id:
+            if op.previous_operation.get_id() == revision_id:
                 raise Operation.ChainError("can't remove: blocked by another operation")
 
         try:

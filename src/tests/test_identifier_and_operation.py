@@ -17,47 +17,45 @@ class TestOperationChain(TestCase):
 
     def add_operations_step1(self):
         ops = [
-            Operation(None, self.uuids[0], 'http://example1.com/', [self.public_keys[0]], self.public_keys[0]),
-            Operation(None, self.uuids[1], 'http://example2.com/', [self.public_keys[1]], self.public_keys[0]),
+            Operation(None, self.uuids[0], 'http://example1.com/', [self.public_keys[0]]),
+            Operation(None, self.uuids[1], 'http://example2.com/', [self.public_keys[1]]),
         ]
 
-        sign_operation(self.private_keys[0], ops[0])
-        sign_operation(self.private_keys[0], ops[1])
+        sign_operation(self.public_keys[0], self.private_keys[0], ops[0])
+        sign_operation(self.public_keys[0], self.private_keys[0], ops[1])
 
         ops.extend([
-            Operation(ops[0], self.uuids[0], 'http://example1.com/v2/', [self.public_keys[0]], self.public_keys[0]),
-            Operation(ops[1], self.uuids[1], 'http://example2.com/v2/', [self.public_keys[1]], self.public_keys[0])
+            Operation(ops[0], self.uuids[0], 'http://example1.com/v2/', [self.public_keys[0]]),
+            Operation(ops[1], self.uuids[1], 'http://example2.com/v2/', [self.public_keys[1]])
         ])
 
-        sign_operation(self.private_keys[0], ops[2])
-        sign_operation(self.private_keys[0], ops[3])
+        sign_operation(self.public_keys[0], self.private_keys[0], ops[2])
+        sign_operation(self.public_keys[0], self.private_keys[0], ops[3])
 
         ops.append(
-            Operation(ops[3], self.uuids[1], 'http://example2.com/v3/', [self.public_keys[1]], self.public_keys[1])
+            Operation(ops[3], self.uuids[1], 'http://example2.com/v3/', [self.public_keys[1]])
         )
 
-        sign_operation(self.private_keys[1], ops[4])
+        sign_operation(self.public_keys[1], self.private_keys[1], ops[4])
 
         return ops
 
     def add_operations_step2(self, ops):
         ops.extend([
-            Operation(None, self.uuids[2], 'http://example3.com/', [self.public_keys[1], self.public_keys[2]],
-                      self.public_keys[2]),
-            Operation(ops[2], self.uuids[0], 'http://example1.com/v3/', [self.public_keys[0], self.public_keys[2]],
-                      self.public_keys[0])
+            Operation(None, self.uuids[2], 'http://example3.com/', [self.public_keys[1], self.public_keys[2]]),
+            Operation(ops[2], self.uuids[0], 'http://example1.com/v3/', [self.public_keys[0], self.public_keys[2]])
         ])
 
-        sign_operation(self.private_keys[2], ops[5])
-        sign_operation(self.private_keys[0], ops[6])
+        sign_operation(self.public_keys[2], self.private_keys[2], ops[5])
+        sign_operation(self.public_keys[0], self.private_keys[0], ops[6])
 
         ops.extend([
-            Operation(ops[5], self.uuids[2], 'http://example3.com/v2/', [self.public_keys[2]], self.public_keys[1]),
-            Operation(ops[6], self.uuids[0], 'http://example1.com/v4/', [self.public_keys[2]], self.public_keys[2])
+            Operation(ops[5], self.uuids[2], 'http://example3.com/v2/', [self.public_keys[2]]),
+            Operation(ops[6], self.uuids[0], 'http://example1.com/v4/', [self.public_keys[2]])
         ])
 
-        sign_operation(self.private_keys[1], ops[7])
-        sign_operation(self.private_keys[2], ops[8])
+        sign_operation(self.public_keys[1], self.private_keys[1], ops[7])
+        sign_operation(self.public_keys[2], self.private_keys[2], ops[8])
 
         return ops
 
