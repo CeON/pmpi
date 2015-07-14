@@ -69,7 +69,7 @@ class Identifier:
         Remove the identifier from the database.
 
         :param database: provided by database_required decorator
-        :raise self.DoesNotExist: when the identifier is not in the databse
+        :raise self.DoesNotExist: when the identifier is not in the database
         """
         try:
             database.delete(Database.IDENTIFIERS, self.uuid.bytes)

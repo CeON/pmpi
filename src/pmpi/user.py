@@ -1,6 +1,6 @@
 from ecdsa.curves import NIST192p
 from ecdsa.keys import SigningKey, VerifyingKey
-from src.pmpi.utils import sign_operation
+from src.pmpi.utils import sign_object
 
 
 class User:
@@ -28,4 +28,4 @@ class User:
 
         :param operation: operation to sign
         """
-        sign_operation(self._public_key, self._private_key, operation)
+        sign_object(self._public_key, self._private_key, operation)

@@ -67,7 +67,7 @@ class Operation:
                 # TODO check if prev_operation already exist in database!
 
         except self.DoesNotExist:
-            raise self.ChainError("previous_revision_id does not exsist")
+            raise self.ChainError("previous_revision_id does not exist")
 
         return True
 
@@ -160,7 +160,7 @@ class Operation:
         for rev in Operation.get_revision_id_list():
             op = Operation.get(rev)
             if rev != revision_id and op.uuid == self.uuid and self.previous_operation.is_none():
-                raise Operation.ChainError("trying to create minting operation for exsisting uuid")
+                raise self.ChainError("trying to create minting operation for existing uuid")
 
         try:
             self.get(revision_id)
@@ -176,7 +176,7 @@ class Operation:
         for rev in Operation.get_revision_id_list():
             op = Operation.get(rev)
             if op.previous_operation.get_id() == revision_id:
-                raise Operation.ChainError("can't remove: blocked by another operation")
+                raise self.ChainError("can't remove: blocked by another operation")
 
         try:
             database.delete(Database.OPERATIONS, revision_id)

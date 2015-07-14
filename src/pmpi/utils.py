@@ -25,6 +25,6 @@ def double_sha(b):
     return sha256(sha256(b).digest()).digest()
 
 
-def sign_operation(public_key, private_key, operation):
-    operation.public_key = public_key
-    operation.signature = private_key.sign_deterministic(operation.unsigned_raw())  # FIXME, hashfunc=sha256)
+def sign_object(public_key, private_key, obj):
+    obj.public_key = public_key
+    obj.signature = private_key.sign_deterministic(obj.unsigned_raw())  # FIXME, hashfunc=sha256)

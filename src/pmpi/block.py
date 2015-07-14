@@ -1,6 +1,6 @@
 from io import BytesIO
 from ecdsa.keys import VerifyingKey, BadSignatureError
-from src.pmpi.core import database_required
+from src.pmpi.core import database_required, Database
 from src.pmpi.exceptions import ObjectDoesNotExist, RawFormatError
 from src.pmpi.operation import Operation
 from src.pmpi.revision import AbstractRevision
@@ -91,7 +91,7 @@ class Block:
         try:
             prev_block = self.previous_block.get_revision()
             if prev_block is not None:
-                pass  # TODO check itegrity of operation chains
+                pass  # TODO check integrity of operation chains
         except self.DoesNotExist:
             raise self.ChainError("previous_revision_id does not exist")
 
@@ -159,7 +159,7 @@ class Block:
         return ret
 
     @classmethod
-    def __from_raw_and_operations(cls, raw, operations):  # FIXME
+    def __from_raw_and_operations(cls, raw, operations):
         buffer = BytesIO(raw)
 
         if read_uint32(buffer) != cls.VERSION:
@@ -212,13 +212,22 @@ class Block:
 
         return cls.__from_raw_and_operations(buffer.read(), operations)
 
-
     # Database operations
 
     @classmethod
     @database_required
+    def get_revision_id_list(cls, database):
+        return database.keys(Database.BLOCKS)
+
+    @classmethod
+    @database_required
     def get(cls, database, revision_id):
-        raise NotImplementedError  # TODO
+        try:
+            block = Block.from_raw(database.get(Database.BLOCKS, revision_id))
+            block.verify_revision_id(revision_id)
+            return block
+        except KeyError:
+            raise cls.DoesNotExist
 
     @database_required
     def get_blockchain(self, database):
@@ -226,11 +235,38 @@ class Block:
 
     @database_required
     def put(self, database):
-        raise NotImplementedError  # TODO
+        self.verify()
+        revision_id = self.hash()
+
+        try:
+            self.get(revision_id)
+            raise self.ChainError("revision_id already in database")
+        except self.DoesNotExist:
+            database.put(Database.BLOCKS, self.hash(), self.raw())
+
+            # TODO is it right place for doing this (putting operations, as below) ??
+            # TODO (and, shouldn't we catch any exceptions, e.g. Operation.ChainError, should we?)
+
+            for op in self.operations:
+                op.put()
 
     @database_required
     def remove(self, database):
-        raise NotImplementedError  # TODO
+        revision_id = self.hash()
+
+        # FIXME naive algorithm !!!
+        for rev in Block.get_revision_id_list():
+            block = Block.get(rev)
+            if block.previous_block.get_id() == revision_id:
+                raise self.ChainError("can't remove: blocked by another block")
+
+        try:
+            database.delete(Database.BLOCKS, revision_id)
+
+            # TODO when putting block, we are (currently) putting also operations. Should we remove them here?
+
+        except ObjectDoesNotExist:
+            raise self.DoesNotExist
 
     # Exceptions
 
@@ -242,3 +278,4 @@ class Block:
 
     class VerifyError(Exception):
         pass
+

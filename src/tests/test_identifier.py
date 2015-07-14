@@ -6,7 +6,7 @@ from ecdsa.keys import SigningKey
 from src.pmpi import Identifier, Operation
 from src.pmpi.core import Database, initialise_database, close_database
 from src.pmpi.operation import OperationRev
-from src.pmpi.utils import sign_operation
+from src.pmpi.utils import sign_object
 
 
 class TestIdentifier(TestCase):
@@ -15,7 +15,7 @@ class TestIdentifier(TestCase):
         self.private_key = SigningKey.generate()
         self.public_keys = [SigningKey.generate().get_verifying_key(), SigningKey.generate().get_verifying_key()]
         self.operation = Operation(OperationRev(), self.uuid, 'http://example.com', self.public_keys)
-        sign_operation(self.private_key.get_verifying_key(), self.private_key, self.operation)
+        sign_object(self.private_key.get_verifying_key(), self.private_key, self.operation)
         self.identifier = Identifier.from_operation(self.operation)
 
     def test_fields(self):
@@ -42,7 +42,7 @@ class TestNoDatabase(TestCase):
 
         operation = Operation(OperationRev(), uuid4(), 'http://example.com/', [])
         sk = SigningKey.generate()
-        sign_operation(sk.get_verifying_key(), sk, operation)
+        sign_object(sk.get_verifying_key(), sk, operation)
         identifier = Identifier.from_operation(operation)
 
         with self.assertRaisesRegex(Database.InitialisationError, "initialise database first"):
@@ -62,7 +62,7 @@ class TestIdentifierDatabase(TestCase):
 
         for op in self.operations:
             sk = SigningKey.generate()
-            sign_operation(sk.get_verifying_key(), sk, op)
+            sign_object(sk.get_verifying_key(), sk, op)
             op.put()
 
         self.identifiers = [Identifier.from_operation(op) for op in self.operations]
