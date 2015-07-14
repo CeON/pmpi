@@ -1,62 +1,38 @@
 import os
-from unittest import TestCase, mock
+from unittest import TestCase
 from uuid import uuid4
 from ecdsa.keys import SigningKey
 
-from src.pmpi import Identifier, Operation, RawFormatError
+from src.pmpi import Identifier, Operation
 from src.pmpi.core import Database, initialise_database, close_database
 from src.pmpi.operation import OperationRev
-from src.pmpi.utils import double_sha
-
-
-def make_mock_operation(some_bytes):
-    operation = mock.Mock(Operation)
-    operation.sha256 = mock.MagicMock(return_value=double_sha(some_bytes))
-    return operation
+from src.pmpi.utils import sign_operation
 
 
 class TestIdentifier(TestCase):
     def setUp(self):
-        self.operation_mock = make_mock_operation(b'operation')
         self.uuid = uuid4()
+        self.private_key = SigningKey.generate()
         self.public_keys = [SigningKey.generate().get_verifying_key(), SigningKey.generate().get_verifying_key()]
-        self.identifier = Identifier(self.uuid, 'http://example.com/', self.public_keys,
-                                     OperationRev.from_id(self.operation_mock.sha256()))
+        self.operation = Operation(OperationRev(), self.uuid, 'http://example.com', self.public_keys)
+        sign_operation(self.private_key.get_verifying_key(), self.private_key, self.operation)
+        self.identifier = Identifier.from_operation(self.operation)
 
     def test_fields(self):
         self.assertEqual(self.identifier.uuid, self.uuid)
-        self.assertEqual(self.identifier.address, 'http://example.com/')
-        self.assertEqual(self.identifier.owners, self.public_keys)
-        self.assertEqual(self.identifier.operation_rev_id, OperationRev.from_id(self.operation_mock.sha256()))
-        self.assertEqual(len(self.operation_mock.sha256()), 32)
+        self.assertEqual(self.identifier.operation_rev, OperationRev.from_revision(self.operation))
 
-    def test_raw(self):
-        raw = self.identifier.raw()
+    def test_operation_rev(self):
+        self.assertIsInstance(self.identifier.operation_rev, OperationRev)
+        self.assertIsInstance(self.identifier.operation_rev.get_revision(), Operation)
 
-        self.assertIsInstance(raw, bytes)
-        self.assertEqual(raw, self.operation_mock.sha256() +
-                         len(self.identifier.address).to_bytes(4, 'big') + bytes(self.identifier.address, 'utf-8') +
-                         len(self.identifier.owners).to_bytes(4, 'big') + b''.join(
-            [len(owner).to_bytes(4, 'big') + owner for owner in self.identifier.owners_der()]))
-
-    def test_from_raw(self):
-        new_identifier = Identifier.from_raw(self.uuid, self.identifier.raw())
-
-        self.assertIsInstance(new_identifier, Identifier)
-        for attr in ('uuid', 'address', 'operation_rev_id'):
-            self.assertEqual(getattr(new_identifier, attr), getattr(self.identifier, attr))
-        self.assertEqual(new_identifier.owners_der(), self.identifier.owners_der())
-
-    def test_from_wrong_raw(self):
-        with self.assertRaisesRegex(RawFormatError, "raw input too short"):
-            Identifier.from_raw(self.uuid, self.identifier.raw()[:-1])  # raw without last byte
-
-        with self.assertRaisesRegex(RawFormatError, "raw input too long"):
-            Identifier.from_raw(self.uuid, self.identifier.raw() + b'\x00')  # raw with additional byte
+        op = self.identifier.operation_rev.get_revision()
+        self.assertEqual(op.uuid, self.uuid)
+        self.assertEqual(op.address, 'http://example.com')
+        self.assertEqual(op.owners, self.public_keys)
 
 
 class TestNoDatabase(TestCase):
-
     def test_no_database(self):
         with self.assertRaisesRegex(Database.InitialisationError, "initialise database first"):
             Identifier.get_uuid_list()
@@ -64,8 +40,10 @@ class TestNoDatabase(TestCase):
         with self.assertRaisesRegex(Database.InitialisationError, "initialise database first"):
             Identifier.get(uuid4())
 
-        identifier = Identifier(uuid4(), 'http://example.com/', [SigningKey.generate().get_verifying_key()],
-                                OperationRev())
+        operation = Operation(OperationRev(), uuid4(), 'http://example.com/', [])
+        sk = SigningKey.generate()
+        sign_operation(sk.get_verifying_key(), sk, operation)
+        identifier = Identifier.from_operation(operation)
 
         with self.assertRaisesRegex(Database.InitialisationError, "initialise database first"):
             identifier.put()
@@ -76,48 +54,49 @@ class TestNoDatabase(TestCase):
 
 class TestIdentifierDatabase(TestCase):
     def setUp(self):
-        self.operation1_mock = make_mock_operation(b'operation1')
-        self.operation2_mock = make_mock_operation(b'operation2')
-
         initialise_database('test_database_file')
 
-        self.identifier1 = Identifier(
-            uuid4(), 'http://example.com/first/', [SigningKey.generate().get_verifying_key()],
-            OperationRev.from_id(self.operation1_mock.sha256()))
-        self.identifier2 = Identifier(
-            uuid4(), 'http://example.com/second/', [SigningKey.generate().get_verifying_key()],
-            OperationRev.from_id(self.operation2_mock.sha256()))
+        self.operations = [
+            Operation(OperationRev(), uuid4(), 'http://example.com/' + url, [SigningKey.generate().get_verifying_key()])
+            for url in ('first/', 'second/')]
+
+        for op in self.operations:
+            sk = SigningKey.generate()
+            sign_operation(sk.get_verifying_key(), sk, op)
+            op.put()
+
+        self.identifiers = [Identifier.from_operation(op) for op in self.operations]
 
     def test_0_empty(self):
         self.assertEqual(len(Identifier.get_uuid_list()), 0)
 
     def test_1_get_from_empty(self):
         with self.assertRaises(Identifier.DoesNotExist):
-            Identifier.get(self.identifier1.uuid)
+            Identifier.get(self.identifiers[0].uuid)
 
     def test_2_put_remove(self):
-        self.identifier1.put()
-        self.identifier2.put()
+        for identifier in self.identifiers:
+            identifier.put()
 
         uuid_list = Identifier.get_uuid_list()
 
         self.assertEqual(len(uuid_list), 2)
-        self.assertCountEqual(uuid_list, [ident.uuid for ident in [self.identifier1, self.identifier2]])
+        self.assertCountEqual(uuid_list, [identifier.uuid for identifier in self.identifiers])
 
-        for ident in [self.identifier1, self.identifier2]:
-            new_id = Identifier.get(ident.uuid)
-            self.assertEqual(new_id.uuid, ident.uuid)
-            self.assertEqual(new_id.raw(), ident.raw())
+        for identifier in self.identifiers:
+            new_id = Identifier.get(identifier.uuid)
+            self.assertEqual(new_id.uuid, identifier.uuid)
+            self.assertEqual(new_id.operation_rev, identifier.operation_rev)
 
-        self.identifier1.remove()
-
-        with self.assertRaises(Identifier.DoesNotExist):
-            self.identifier1.remove()  # already removed identifier
-
-        self.assertCountEqual(Identifier.get_uuid_list(), [self.identifier2.uuid])
+        self.identifiers[0].remove()
 
         with self.assertRaises(Identifier.DoesNotExist):
-            Identifier.get(self.identifier1.uuid)
+            self.identifiers[0].remove()  # already removed identifier
+
+        self.assertCountEqual(Identifier.get_uuid_list(), [self.identifiers[1].uuid])
+
+        with self.assertRaises(Identifier.DoesNotExist):
+            Identifier.get(self.identifiers[0].uuid)
 
     def tearDown(self):
         close_database()

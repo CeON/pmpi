@@ -3,9 +3,9 @@ class AbstractRevision:
     _revision = None
 
     @classmethod
-    def from_id(cls, id):
+    def from_id(cls, identifier):
         rev = cls()
-        rev._id = id
+        rev._id = identifier
         return rev
 
     @classmethod

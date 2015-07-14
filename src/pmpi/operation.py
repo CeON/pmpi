@@ -145,8 +145,9 @@ class Operation:
     @database_required
     def get(cls, database, revision_id):
         try:
-            # TODO op=..., .verify_revision_id
-            return Operation.from_raw(database.get(Database.OPERATIONS, revision_id))
+            operation = Operation.from_raw(database.get(Database.OPERATIONS, revision_id))
+            operation.verify_revision_id(revision_id)
+            return operation
         except KeyError:
             raise cls.DoesNotExist
 

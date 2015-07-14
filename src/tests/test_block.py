@@ -52,7 +52,7 @@ class TestSingleBlock(TestCase):
                          self.block.operations_limit.to_bytes(4, 'big') +
                          self.block.operations_raw() +
                          self.block.difficulty.to_bytes(4, 'big') +
-                         self.block.padding.to_bytes(4, 'big')  # TODO czy tyle tego miejsca?!
+                         self.block.padding.to_bytes(4, 'big')
                          )
 
     def test_unsigned_raw(self):

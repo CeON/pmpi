@@ -35,7 +35,9 @@ class TestSingleOperation(TestCase):
 
         self.assertIsInstance(unsigned_raw, bytes)
         self.assertEqual(unsigned_raw[:36], b'\x00\x00\x00\x01' + b'\x00' * 32)
-        self.assertEqual(len(unsigned_raw), 4 + 32 + 16 + 4 + len('http://example.com/') + 4 + 4 + len(self.public_key.to_der()) + 4 + len(self.public_key.to_der()))
+        self.assertEqual(len(unsigned_raw),
+                         4 + 32 + 16 + 4 + len('http://example.com/') + 4 +
+                         4 + len(self.public_key.to_der()) + 4 + len(self.public_key.to_der()))
 
     def test_raw(self):
         raw = self.operation.raw()
