@@ -5,7 +5,7 @@ from ecdsa.keys import SigningKey
 
 from src.pmpi import Identifier, Operation, RawFormatError
 from src.pmpi.core import Database, initialise_database, close_database
-from src.pmpi.operation import OperationRevID
+from src.pmpi.operation import OperationRev
 from src.pmpi.utils import double_sha
 
 
@@ -21,13 +21,13 @@ class TestIdentifier(TestCase):
         self.uuid = uuid4()
         self.public_keys = [SigningKey.generate().get_verifying_key(), SigningKey.generate().get_verifying_key()]
         self.identifier = Identifier(self.uuid, 'http://example.com/', self.public_keys,
-                                     OperationRevID.from_id(self.operation_mock.sha256()))
+                                     OperationRev.from_id(self.operation_mock.sha256()))
 
     def test_fields(self):
         self.assertEqual(self.identifier.uuid, self.uuid)
         self.assertEqual(self.identifier.address, 'http://example.com/')
         self.assertEqual(self.identifier.owners, self.public_keys)
-        self.assertEqual(self.identifier.operation_rev_id, OperationRevID.from_id(self.operation_mock.sha256()))
+        self.assertEqual(self.identifier.operation_rev_id, OperationRev.from_id(self.operation_mock.sha256()))
         self.assertEqual(len(self.operation_mock.sha256()), 32)
 
     def test_raw(self):
@@ -65,7 +65,7 @@ class TestNoDatabase(TestCase):
             Identifier.get(uuid4())
 
         identifier = Identifier(uuid4(), 'http://example.com/', [SigningKey.generate().get_verifying_key()],
-                                OperationRevID())
+                                OperationRev())
 
         with self.assertRaisesRegex(Database.InitialisationError, "initialise database first"):
             identifier.put()
@@ -83,10 +83,10 @@ class TestIdentifierDatabase(TestCase):
 
         self.identifier1 = Identifier(
             uuid4(), 'http://example.com/first/', [SigningKey.generate().get_verifying_key()],
-            OperationRevID.from_id(self.operation1_mock.sha256()))
+            OperationRev.from_id(self.operation1_mock.sha256()))
         self.identifier2 = Identifier(
             uuid4(), 'http://example.com/second/', [SigningKey.generate().get_verifying_key()],
-            OperationRevID.from_id(self.operation2_mock.sha256()))
+            OperationRev.from_id(self.operation2_mock.sha256()))
 
     def test_0_empty(self):
         self.assertEqual(len(Identifier.get_uuid_list()), 0)
@@ -102,12 +102,12 @@ class TestIdentifierDatabase(TestCase):
         uuid_list = Identifier.get_uuid_list()
 
         self.assertEqual(len(uuid_list), 2)
-        self.assertCountEqual(uuid_list, [id.uuid for id in [self.identifier1, self.identifier2]])
+        self.assertCountEqual(uuid_list, [ident.uuid for ident in [self.identifier1, self.identifier2]])
 
-        for id in [self.identifier1, self.identifier2]:
-            new_id = Identifier.get(id.uuid)
-            self.assertEqual(new_id.uuid, id.uuid)
-            self.assertEqual(new_id.raw(), id.raw())
+        for ident in [self.identifier1, self.identifier2]:
+            new_id = Identifier.get(ident.uuid)
+            self.assertEqual(new_id.uuid, ident.uuid)
+            self.assertEqual(new_id.raw(), ident.raw())
 
         self.identifier1.remove()
 

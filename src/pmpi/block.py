@@ -3,11 +3,11 @@ from ecdsa.keys import VerifyingKey, BadSignatureError
 from src.pmpi.core import database_required
 from src.pmpi.exceptions import ObjectDoesNotExist, RawFormatError
 from src.pmpi.operation import Operation
-from src.pmpi.revision_id import AbstractRevisionID
+from src.pmpi.revision import AbstractRevision
 from src.pmpi.utils import double_sha, read_bytes, read_uint32, read_sized_bytes
 
 
-class BlockRevID(AbstractRevisionID):
+class BlockRev(AbstractRevision):
     def _get_revision_from_database(self):
         return Block.get(self._id)
 
@@ -15,7 +15,7 @@ class BlockRevID(AbstractRevisionID):
 class Block:
     """
 
-    :type previous_block: BlockRevID
+    :type previous_block: BlockRev
     :type timestamp: int
     :type operations: list[Operation]
     :type public_key: VerifyingKey
@@ -29,6 +29,15 @@ class Block:
     VERSION = 1
 
     def __init__(self, previous_block, timestamp, operations):
+        """
+
+        :type previous_block: BlockRev
+        :type timestamp: int
+        :type operations: list[Operation]
+        :param previous_block: BlockRevID of the previous block
+        :param timestamp: time of block creation
+        :param operations: the list of operations that the new block will contain
+        """
         self.previous_block = previous_block
         self.timestamp = timestamp
         self.operations = operations
@@ -42,15 +51,29 @@ class Block:
         self.operations_limit = 5  # TODO what value should be the default?
 
     def counted_checksum(self):
+        """
+        :rtype : bytes
+        :return: calculated checksum used for fulfilling the proof-of-work
+        """
         return double_sha(self.unmined_raw())
 
     def checksum_correct(self):
+        """
+        Check if checksum is correct.
+        :return: True or raise exception
+        :raise self.VerifyError: on the checksum mismatch
+        """
         if self.checksum == self.counted_checksum():
             return True
         else:
             raise self.VerifyError("wrong checksum")
 
-    def is_signed(self):
+    def verify_signature(self):
+        """
+        Check if block is signed correctly.
+        :return: True or raise exception
+        :raise self.VerifyError: when the block isn't signed or self.unsigned_raw doesn't match the signature
+        """
         if self.signature is not None:
             try:
                 self.public_key.verify(self.signature, self.unsigned_raw())
@@ -75,24 +98,25 @@ class Block:
         self.checksum = self.counted_checksum()
 
     def verify(self):  # FIXME
-        if self.is_signed():
-            for op in self.operations:
-                op.verify()
-            # TODO verify, if operations don't make trees instead of chains
+        self.verify_signature()
 
-            try:
-                prev_block = self.previous_block.get_revision()
-                if prev_block is not None:
-                    pass  # TODO check itegrity of operation chains
-            except self.DoesNotExist:
-                raise self.ChainError("previous_revision_id does not exist")
+        for op in self.operations:
+            op.verify()
+        # TODO verify, if operations don't make trees instead of chains
 
-            # TODO check: len(self.operations) <= self.operations_limit <= CALC_OP_LIMIT_FOR_MINTER(self.public_key)
-            # TODO check: difficulty is correctly set -- check block depth and self.difficulty <= DIFF_AT_DEPTH(depth)
+        try:
+            prev_block = self.previous_block.get_revision()
+            if prev_block is not None:
+                pass  # TODO check itegrity of operation chains
+        except self.DoesNotExist:
+            raise self.ChainError("previous_revision_id does not exist")
 
-            return True
+        # TODO check: len(self.operations) <= self.operations_limit <= CALC_OP_LIMIT_FOR_MINTER(self.public_key)
+        # TODO check: difficulty is correctly set -- check block depth and self.difficulty <= DIFF_AT_DEPTH(depth)
 
-    def sha256(self):
+        return True
+
+    def hash(self):
         return double_sha(self.raw())
 
     # Serialization and deserialization
@@ -119,11 +143,12 @@ class Block:
             return self.unmined_raw() + self.checksum
 
     def raw(self):
-        if self.is_signed():
-            ret = self.unsigned_raw()
-            ret += len(self.public_key.to_der()).to_bytes(4, 'big') + self.public_key.to_der()
-            ret += len(self.signature).to_bytes(4, 'big') + self.signature
-            return ret
+        self.verify_signature()
+
+        ret = self.unsigned_raw()
+        ret += len(self.public_key.to_der()).to_bytes(4, 'big') + self.public_key.to_der()
+        ret += len(self.signature).to_bytes(4, 'big') + self.signature
+        return ret
 
     @classmethod
     def from_raw(cls, revision_id, raw):  # FIXME
@@ -135,12 +160,11 @@ class Block:
         if read_uint32(buffer) != cls.VERSION:
             raise RawFormatError("version number mismatch")
 
-        previous_block_id = BlockRevID.from_id(read_bytes(buffer, 32))
+        previous_block = BlockRev.from_id(read_bytes(buffer, 32))
         timestamp = read_uint32(buffer)
         operations_limit = read_uint32(buffer)
-        operations = [Operation.from_raw(double_sha(op), op) for op in
+        operations = [Operation.from_raw(op) for op in
                       [read_sized_bytes(buffer) for _ in range(read_uint32(buffer))]]
-        # TODO is there any reason why we shouldn't use double_sha(op) here?
         difficulty = read_uint32(buffer)
         padding = read_uint32(buffer)
         checksum = read_bytes(buffer, 32)
@@ -150,10 +174,10 @@ class Block:
         if len(buffer.read()) > 0:
             raise RawFormatError("raw input too long")
 
-        if int.from_bytes(previous_block_id.get_id(), 'big') == 0:
-            previous_block_id = BlockRevID()
+        if int.from_bytes(previous_block.get_id(), 'big') == 0:
+            previous_block = BlockRev()
 
-        block = cls(previous_block_id, timestamp, operations)
+        block = cls(previous_block, timestamp, operations)
         block.operations_limit = operations_limit
         block.difficulty = difficulty
         block.padding = padding
@@ -163,7 +187,7 @@ class Block:
 
         block.verify()
 
-        if revision_id != block.sha256():
+        if revision_id != block.hash():
             raise cls.VerifyError("wrong revision_id")
 
         return block

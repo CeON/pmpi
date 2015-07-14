@@ -3,10 +3,10 @@ from uuid import uuid4
 from ecdsa.keys import SigningKey
 from hashlib import sha256
 import time
-from src.pmpi.block import BlockRevID, Block
+from src.pmpi.block import BlockRev, Block
 from src.pmpi.exceptions import RawFormatError
-from src.pmpi.operation import Operation, OperationRevID
-from src.tests.test_operation import sign_operation
+from src.pmpi.operation import Operation, OperationRev
+from src.pmpi.utils import sign_operation
 
 
 def sign_block(public_key, private_key, block):
@@ -21,20 +21,20 @@ class TestSingleBlock(TestCase):
         self.timestamp = int(time.time())
 
         self.operations = [
-            Operation(OperationRevID(), uuid4(), 'http://example1.com/', [self.public_key]),
-            Operation(OperationRevID(), uuid4(), 'http://example2.com/', [self.public_key])
+            Operation(OperationRev(), uuid4(), 'http://example1.com/', [self.public_key]),
+            Operation(OperationRev(), uuid4(), 'http://example2.com/', [self.public_key])
         ]
 
-        self.block = Block(BlockRevID(), self.timestamp, self.operations)
+        self.block = Block(BlockRev(), self.timestamp, self.operations)
 
         for op in self.operations:
-            sign_operation(self.public_key, self.private_key, op)  # TODO cZy tyo zadziała?
+            sign_operation(self.public_key, self.private_key, op)
 
         self.block.mine()
         sign_block(self.public_key, self.private_key, self.block)
 
     def test_fields(self):
-        self.assertEqual(self.block.previous_block, BlockRevID())
+        self.assertEqual(self.block.previous_block, BlockRev())
         self.assertEqual(self.block.timestamp, self.timestamp)
         self.assertEqual(self.block.operations, self.operations)
         self.assertEqual(self.block.operations_raw(),
@@ -47,7 +47,7 @@ class TestSingleBlock(TestCase):
         self.assertIsInstance(unmined_raw, bytes)
         self.assertEqual(unmined_raw,
                          Block.VERSION.to_bytes(4, 'big') +
-                         bytes(BlockRevID()) +
+                         bytes(BlockRev()) +
                          self.timestamp.to_bytes(4, 'big') +
                          self.block.operations_limit.to_bytes(4, 'big') +
                          self.block.operations_raw() +
@@ -71,7 +71,7 @@ class TestSingleBlock(TestCase):
                          len(self.block.signature).to_bytes(4, 'big') + self.block.signature)
 
     def test_from_raw(self):
-        new_block = Block.from_raw(self.block.sha256(), self.block.raw())
+        new_block = Block.from_raw(self.block.hash(), self.block.raw())
 
         self.assertIsInstance(new_block, Block)
         for attr in ('previous_block', 'timestamp', 'operations_limit', 'difficulty',
@@ -88,9 +88,9 @@ class TestSingleBlock(TestCase):
         raw = self.block.raw()
 
         with self.assertRaisesRegex(RawFormatError, "raw input too short"):
-            Block.from_raw(self.block.sha256(), raw[:-1])
+            Block.from_raw(self.block.hash(), raw[:-1])
         with self.assertRaisesRegex(RawFormatError, "raw input too long"):
-            Block.from_raw(self.block.sha256(), raw + b'\x00')
+            Block.from_raw(self.block.hash(), raw + b'\x00')
 
         with self.assertRaisesRegex(Block.VerifyError, "wrong signature"):
             mangled_raw = bytearray(raw)
@@ -99,7 +99,7 @@ class TestSingleBlock(TestCase):
             except ValueError:
                 mangled_raw[-1] -= 1
 
-            Block.from_raw(self.block.sha256(), mangled_raw)
+            Block.from_raw(self.block.hash(), mangled_raw)
 
         with self.assertRaisesRegex(Block.VerifyError, "wrong revision_id"):
             Block.from_raw(b'wrong hash', raw).verify()

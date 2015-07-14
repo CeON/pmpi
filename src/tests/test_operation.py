@@ -2,16 +2,14 @@ from hashlib import sha256
 import os
 from unittest.case import TestCase
 from uuid import uuid4
+
 from ecdsa.curves import NIST256p
 from ecdsa.keys import SigningKey
+
 from src.pmpi.core import initialise_database, close_database
 from src.pmpi.exceptions import RawFormatError
-from src.pmpi.operation import Operation, OperationRevID
-
-
-def sign_operation(public_key, private_key, operation):
-    operation.public_key = public_key
-    operation.signature = private_key.sign_deterministic(operation.unsigned_raw())  # FIXME, hashfunc=sha256)
+from src.pmpi.operation import Operation, OperationRev
+from src.pmpi.utils import sign_operation
 
 
 class TestSingleOperation(TestCase):
@@ -21,12 +19,12 @@ class TestSingleOperation(TestCase):
         self.public_key = self.private_key.get_verifying_key()
 
         self.uuid = uuid4()
-        self.operation = Operation(OperationRevID(), self.uuid, 'http://example.com/', [self.public_key])
+        self.operation = Operation(OperationRev(), self.uuid, 'http://example.com/', [self.public_key])
 
         sign_operation(self.public_key, self.private_key, self.operation)
 
     def test_fields(self):
-        self.assertEqual(self.operation.previous_operation, OperationRevID())
+        self.assertEqual(self.operation.previous_operation, OperationRev())
         self.assertEqual(self.operation.uuid, self.uuid)
         self.assertEqual(self.operation.address, 'http://example.com/')
         self.assertEqual(self.operation.owners, [self.public_key])
@@ -36,28 +34,19 @@ class TestSingleOperation(TestCase):
         unsigned_raw = self.operation.unsigned_raw()
 
         self.assertIsInstance(unsigned_raw, bytes)
-        self.assertEqual(unsigned_raw,
-                         Operation.VERSION.to_bytes(4, 'big') +  # version
-                         bytes(OperationRevID()) +  # previous_revision_ID (here: 0)
-                         self.uuid.bytes +  # uuid
-                         len(self.operation.address).to_bytes(4, 'big') +  # address length
-                         bytes(self.operation.address, 'utf-8') +  # address
-                         len(self.operation.owners).to_bytes(4, 'big') +  # owners count
-                         b''.join([len(owner).to_bytes(4, 'big') + owner  # owners
-                                   for owner in self.operation.owners_der()]) +
-                         len(self.public_key.to_der()).to_bytes(4, 'big') + self.public_key.to_der()  # pub_key
-                         )
+        self.assertEqual(unsigned_raw[:36], b'\x00\x00\x00\x01' + b'\x00' * 32)
+        self.assertEqual(len(unsigned_raw), 4 + 32 + 16 + 4 + len('http://example.com/') + 4 + 4 + len(self.public_key.to_der()) + 4 + len(self.public_key.to_der()))
 
     def test_raw(self):
         raw = self.operation.raw()
+        unsigned_raw = self.operation.unsigned_raw()
 
         self.assertIsInstance(raw, bytes)
-        self.assertEqual(raw,
-                         self.operation.unsigned_raw() +
-                         len(self.operation.signature).to_bytes(4, 'big') + self.operation.signature)
+        self.assertEqual(raw[:len(unsigned_raw)], self.operation.unsigned_raw())
+        self.assertEqual(len(raw), len(unsigned_raw) + 4 + len(self.operation.signature))
 
     def test_from_raw(self):
-        new_operation = Operation.from_raw(self.operation.sha256(), self.operation.raw())
+        new_operation = Operation.from_raw(self.operation.raw())
 
         self.assertIsInstance(new_operation, Operation)
         for attr in ('previous_operation', 'uuid', 'address', 'signature'):
@@ -72,9 +61,9 @@ class TestSingleOperation(TestCase):
         raw = self.operation.raw()
 
         with self.assertRaisesRegex(RawFormatError, "raw input too short"):
-            Operation.from_raw(self.operation.sha256(), raw[:-1])
+            Operation.from_raw(raw[:-1])
         with self.assertRaisesRegex(RawFormatError, "raw input too long"):
-            Operation.from_raw(self.operation.sha256(), raw + b'\x00')
+            Operation.from_raw(raw + b'\x00')
 
         with self.assertRaisesRegex(Operation.VerifyError, "wrong signature"):
             mangled_raw = bytearray(raw)
@@ -83,13 +72,13 @@ class TestSingleOperation(TestCase):
             except ValueError:
                 mangled_raw[-1] -= 1
 
-            Operation.from_raw(self.operation.sha256(), mangled_raw).verify()
+            Operation.from_raw(mangled_raw).verify()
 
         with self.assertRaisesRegex(Operation.VerifyError, "wrong revision_id"):
-            Operation.from_raw(b'wrong hash', raw).verify()  # wrong hash length
+            Operation.from_raw(raw).verify_revision_id(b'wrong hash')  # wrong hash length
 
         with self.assertRaisesRegex(Operation.VerifyError, "wrong revision_id"):
-            Operation.from_raw(sha256(b'wrong hash').digest(), raw).verify()  # different hash
+            Operation.from_raw(raw).verify_revision_id(sha256(b'wrong hash').digest())  # different hash
 
     def test_owners(self):
         self.operation.owners = [self.public_key, self.public_key]
@@ -101,7 +90,7 @@ class TestSingleOperation(TestCase):
         self.operation.owners = []
         sign_operation(self.public_key, self.private_key, self.operation)
 
-        self.assertTrue(self.operation.verify())  # TODO do we allow empty owners lists?
+        self.assertTrue(self.operation.verify())
 
 
 class TestMultipleOperations(TestCase):
@@ -111,7 +100,7 @@ class TestMultipleOperations(TestCase):
         self.public_keys = [pk.get_verifying_key() for pk in self.private_keys]
 
         self.operation = [
-            Operation(OperationRevID(), uuid4(), 'http://example.com/', [self.public_keys[1], self.public_keys[2]]),
+            Operation(OperationRev(), uuid4(), 'http://example.com/', [self.public_keys[1], self.public_keys[2]]),
             None, None
         ]
 
@@ -132,7 +121,7 @@ class TestMultipleOperations(TestCase):
 
     def test_1_operation(self):
         sign_operation(self.public_keys[0], self.private_keys[0], self.operation[0])
-        self.operation[1] = Operation(OperationRevID.from_revision(self.operation[0]), self.operation[0].uuid,
+        self.operation[1] = Operation(OperationRev.from_revision(self.operation[0]), self.operation[0].uuid,
                                       'http://illegal.example.com/', [self.public_keys[2]])
 
         with self.assertRaises(Operation.OwnershipError):  # TODO RaisesRegex???
@@ -146,10 +135,10 @@ class TestMultipleOperations(TestCase):
 
     def test_2_operation(self):
         sign_operation(self.public_keys[1], self.private_keys[1], self.operation[0])
-        self.operation[1] = Operation(OperationRevID.from_revision(self.operation[0]), self.operation[0].uuid,
+        self.operation[1] = Operation(OperationRev.from_revision(self.operation[0]), self.operation[0].uuid,
                                       'http://new.example.com/', [self.public_keys[2]])
         sign_operation(self.public_keys[2], self.private_keys[2], self.operation[1])
-        self.operation[2] = Operation(OperationRevID.from_revision(self.operation[1]), uuid4(),
+        self.operation[2] = Operation(OperationRev.from_revision(self.operation[1]), uuid4(),
                                       'http://new2.example.com', [])
 
         with self.assertRaisesRegex(Operation.VerifyError, "uuid mismatch"):
@@ -170,9 +159,9 @@ class TestOperationDatabase(TestCase):
 
         uuid = uuid4()
         self.operation = [
-            Operation(OperationRevID(), uuid, 'http://example.com/', [self.public_key]),
-            Operation(OperationRevID(), uuid, 'http://example2.com/', [self.public_key]),
-            Operation(OperationRevID(), uuid4(), 'http://example3.com/', [self.public_key])
+            Operation(OperationRev(), uuid, 'http://example.com/', [self.public_key]),
+            Operation(OperationRev(), uuid, 'http://example2.com/', [self.public_key]),
+            Operation(OperationRev(), uuid4(), 'http://example3.com/', [self.public_key])
         ]
 
     def test_0_empty(self):
@@ -181,7 +170,7 @@ class TestOperationDatabase(TestCase):
     def test_1_get_from_empty(self):
         with self.assertRaises(Operation.DoesNotExist):
             sign_operation(self.public_key, self.private_key, self.operation[0])
-            Operation.get(self.operation[0].sha256())
+            Operation.get(self.operation[0].hash())
 
     def test_2_put(self):
         sign_operation(self.public_key, self.private_key, self.operation[0])
@@ -190,7 +179,7 @@ class TestOperationDatabase(TestCase):
         with self.assertRaisesRegex(Operation.ChainError, "revision_id already in database"):
             self.operation[0].put()
 
-        self.operation[1].previous_operation = OperationRevID.from_revision(self.operation[0])
+        self.operation[1].previous_operation = OperationRev.from_revision(self.operation[0])
         sign_operation(self.public_key, self.private_key, self.operation[1])
 
         self.operation[1].put()
@@ -201,29 +190,29 @@ class TestOperationDatabase(TestCase):
         revision_id_list = Operation.get_revision_id_list()
 
         self.assertEqual(len(revision_id_list), 3)
-        self.assertCountEqual(revision_id_list, [op.sha256() for op in self.operation])
+        self.assertCountEqual(revision_id_list, [op.hash() for op in self.operation])
 
     def test_3_get_and_remove(self):
         sign_operation(self.public_key, self.private_key, self.operation[0])
-        self.operation[1].previous_operation = OperationRevID.from_revision(self.operation[0])
+        self.operation[1].previous_operation = OperationRev.from_revision(self.operation[0])
 
         for op in self.operation:
             sign_operation(self.public_key, self.private_key, op)
             op.put()
 
         for op in self.operation:
-            new_op = Operation.get(op.sha256())
-            self.assertEqual(new_op.sha256(), op.sha256())
+            new_op = Operation.get(op.hash())
+            self.assertEqual(new_op.hash(), op.hash())
 
         with self.assertRaisesRegex(Operation.ChainError, "can't remove: blocked by another operation"):
             self.operation[0].remove()
 
-        self.assertCountEqual(Operation.get_revision_id_list(), [op.sha256() for op in self.operation])
+        self.assertCountEqual(Operation.get_revision_id_list(), [op.hash() for op in self.operation])
 
         self.operation[1].remove()
         self.operation[0].remove()
 
-        self.assertCountEqual(Operation.get_revision_id_list(), [self.operation[2].sha256()])
+        self.assertCountEqual(Operation.get_revision_id_list(), [self.operation[2].hash()])
 
         self.operation[2].remove()
 
@@ -252,9 +241,9 @@ class TestOperationVerify(TestCase):
         uuid = uuid4()
 
         self.operation = [
-            Operation(OperationRevID(), uuid, 'http://example.com/', [self.public_keys[1]]),
-            Operation(OperationRevID(), uuid, 'http://example2.com/', [self.public_keys[0], self.public_keys[1]]),
-            Operation(OperationRevID(), uuid4(), 'http://example3.com/', [self.public_keys[1]])
+            Operation(OperationRev(), uuid, 'http://example.com/', [self.public_keys[1]]),
+            Operation(OperationRev(), uuid, 'http://example2.com/', [self.public_keys[0], self.public_keys[1]]),
+            Operation(OperationRev(), uuid4(), 'http://example3.com/', [self.public_keys[1]])
         ]
 
     def test_put_operation0(self):
@@ -273,7 +262,7 @@ class TestOperationVerify(TestCase):
         with self.assertRaisesRegex(Operation.ChainError, "trying to create minting operation for exsisting uuid"):
             self.operation[1].put()
 
-        self.operation[1].previous_operation = OperationRevID.from_revision(self.operation[0])
+        self.operation[1].previous_operation = OperationRev.from_revision(self.operation[0])
         sign_operation(self.public_keys[0], self.private_keys[0], self.operation[1])
 
         with self.assertRaises(Operation.OwnershipError):
@@ -284,20 +273,20 @@ class TestOperationVerify(TestCase):
         self.operation[1].put()
 
     def test_put_operation_2(self):
-        self.operation[2].previous_operation = OperationRevID.from_id(sha256(b'wrong hash').digest())
+        self.operation[2].previous_operation = OperationRev.from_id(sha256(b'wrong hash').digest())
         sign_operation(self.public_keys[1], self.private_keys[1], self.operation[2])
 
         with self.assertRaisesRegex(Operation.ChainError, "previous_revision_id does not exsist"):
             self.operation[2].put()
 
         sign_operation(self.public_keys[0], self.private_keys[0], self.operation[1])
-        self.operation[2].previous_operation = OperationRevID.from_revision(self.operation[1])
+        self.operation[2].previous_operation = OperationRev.from_revision(self.operation[1])
         sign_operation(self.public_keys[1], self.private_keys[1], self.operation[2])
 
         with self.assertRaisesRegex(Operation.VerifyError, "uuid mismatch"):
             self.operation[2].put()
 
-        self.operation[2].previous_operation = OperationRevID()
+        self.operation[2].previous_operation = OperationRev()
         sign_operation(self.public_keys[1], self.private_keys[1], self.operation[2])
         self.operation[2].put()
 

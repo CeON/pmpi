@@ -1,4 +1,4 @@
-class AbstractRevisionID:
+class AbstractRevision:
     _id = None
     _revision = None
 
@@ -11,7 +11,7 @@ class AbstractRevisionID:
     @classmethod
     def from_revision(cls, revision):
         rev = cls()
-        rev._id = revision.sha256()
+        rev._id = revision.hash()
         rev._revision = revision
         return rev
 
