@@ -37,7 +37,7 @@ class TestSingleBlock(TestCase):
         self.assertEqual(self.block.previous_block, BlockRev())
         self.assertEqual(self.block.timestamp, self.timestamp)
         self.assertEqual(self.block.operations, self.operations)
-        self.assertEqual(self.block.operations_raw(),
+        self.assertEqual(self.block.operations_full_raw(),
                          len(self.operations).to_bytes(4, 'big') + b''.join(
                              [len(op).to_bytes(4, 'big') + op for op in [op.raw() for op in self.operations]]))
 
@@ -45,15 +45,8 @@ class TestSingleBlock(TestCase):
         unmined_raw = self.block.unmined_raw()
 
         self.assertIsInstance(unmined_raw, bytes)
-        self.assertEqual(unmined_raw,
-                         Block.VERSION.to_bytes(4, 'big') +
-                         bytes(BlockRev()) +
-                         self.timestamp.to_bytes(4, 'big') +
-                         self.block.operations_limit.to_bytes(4, 'big') +
-                         self.block.operations_raw() +
-                         self.block.difficulty.to_bytes(4, 'big') +
-                         self.block.padding.to_bytes(4, 'big')
-                         )
+        self.assertEqual(unmined_raw[:36], b'\x00\x00\x00\x01' + b'\x00' * 32)
+        self.assertEqual(len(unmined_raw), 4 + 32 + 4 + 4 + 4 + 32 * len(self.block.operations) + 4 + 4)
 
     def test_unsigned_raw(self):
         unsigned_raw = self.block.unsigned_raw()
@@ -71,26 +64,26 @@ class TestSingleBlock(TestCase):
                          len(self.block.signature).to_bytes(4, 'big') + self.block.signature)
 
     def test_from_raw(self):
-        new_block = Block.from_raw(self.block.hash(), self.block.raw())
+        new_block = Block.from_raw_with_operations(self.block.raw_with_operations())
 
         self.assertIsInstance(new_block, Block)
         for attr in ('previous_block', 'timestamp', 'operations_limit', 'difficulty',
                      'padding', 'checksum', 'signature'):
             self.assertEqual(getattr(new_block, attr), getattr(self.block, attr))
 
-        self.assertEqual(new_block.operations_raw(), self.block.operations_raw())
+        self.assertEqual(new_block.operations_full_raw(), self.block.operations_full_raw())
         self.assertEqual(new_block.public_key.to_der(), self.block.public_key.to_der())
 
     def test_verify(self):
         self.assertTrue(self.block.verify())
 
     def test_mangled_raw(self):
-        raw = self.block.raw()
+        raw = self.block.raw_with_operations()
 
         with self.assertRaisesRegex(RawFormatError, "raw input too short"):
-            Block.from_raw(self.block.hash(), raw[:-1])
+            Block.from_raw_with_operations(raw[:-1])
         with self.assertRaisesRegex(RawFormatError, "raw input too long"):
-            Block.from_raw(self.block.hash(), raw + b'\x00')
+            Block.from_raw_with_operations(raw + b'\x00')
 
         with self.assertRaisesRegex(Block.VerifyError, "wrong signature"):
             mangled_raw = bytearray(raw)
@@ -99,16 +92,19 @@ class TestSingleBlock(TestCase):
             except ValueError:
                 mangled_raw[-1] -= 1
 
-            Block.from_raw(self.block.hash(), mangled_raw)
+            Block.from_raw_with_operations(mangled_raw).verify_revision_id(self.block.hash())
 
         with self.assertRaisesRegex(Block.VerifyError, "wrong revision_id"):
-            Block.from_raw(b'wrong hash', raw).verify()
+            Block.from_raw_with_operations(raw).verify_revision_id(b'wrong hash')
 
         with self.assertRaisesRegex(Block.VerifyError, "wrong revision_id"):
-            Block.from_raw(sha256(b'wrong hash').digest(), raw).verify()
+            Block.from_raw_with_operations(raw).verify_revision_id(sha256(b'wrong hash'))
 
     def test_unsigned_operation(self):
         self.block.operations[0].address = 'http://different.example.com/'
 
         with self.assertRaisesRegex(Block.VerifyError, "at least one of the operations is not properly signed"):
             self.block.unmined_raw()
+
+        with self.assertRaisesRegex(Block.VerifyError, "at least one of the operations is not properly signed"):
+            self.block.raw_with_operations()

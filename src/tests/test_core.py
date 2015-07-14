@@ -2,6 +2,7 @@ import os
 from unittest.case import TestCase
 
 from src.pmpi.core import Database
+from src.pmpi.revision import AbstractRevision
 
 
 class TestDatabase(TestCase):
@@ -16,3 +17,9 @@ class TestDatabase(TestCase):
 
     def tearDown(self):
         os.remove('test_database_file')
+
+
+class TestAbstractRevision(TestCase):
+    def test_not_implemented(self):
+        with self.assertRaises(NotImplementedError):
+            AbstractRevision()._get_revision_from_database()

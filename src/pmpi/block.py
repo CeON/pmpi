@@ -50,20 +50,13 @@ class Block:
 
         self.operations_limit = 5  # TODO what value should be the default?
 
-    def counted_checksum(self):
-        """
-        :rtype : bytes
-        :return: calculated checksum used for fulfilling the proof-of-work
-        """
-        return double_sha(self.unmined_raw())
-
     def checksum_correct(self):
         """
         Check if checksum is correct.
         :return: True or raise exception
         :raise self.VerifyError: on the checksum mismatch
         """
-        if self.checksum == self.counted_checksum():
+        if self.checksum == double_sha(self.unmined_raw()):
             return True
         else:
             raise self.VerifyError("wrong checksum")
@@ -84,18 +77,9 @@ class Block:
         else:
             raise self.VerifyError("block is not signed")
 
-    def mine(self):  # FIXME method currently for testing purposes
-        unmined_raw = self.unmined_raw()
-        assert 0 < self.difficulty < 256  # TODO ...
-        target = ((1 << 256 - self.difficulty) - 1).to_bytes(32, 'big')
-
-        self.padding = 0
-
-        while double_sha(unmined_raw) > target:
-            self.padding += 1
-            unmined_raw = unmined_raw[:-4] + self.padding.to_bytes(4, 'big')
-
-        self.checksum = self.counted_checksum()
+    def verify_revision_id(self, revision_id):
+        if revision_id != self.hash():
+            raise self.VerifyError("wrong revision_id")
 
     def verify(self):  # FIXME
         self.verify_signature()
@@ -116,12 +100,31 @@ class Block:
 
         return True
 
+    def mine(self):  # FIXME method currently for testing purposes
+        unmined_raw = self.unmined_raw()
+        assert 0 < self.difficulty < 256  # TODO ...
+        target = ((1 << 256 - self.difficulty) - 1).to_bytes(32, 'big')
+
+        self.padding = 0
+
+        while double_sha(unmined_raw) > target:
+            self.padding += 1
+            unmined_raw = unmined_raw[:-4] + self.padding.to_bytes(4, 'big')
+
+        self.checksum = double_sha(self.unmined_raw())
+
     def hash(self):
         return double_sha(self.raw())
 
     # Serialization and deserialization
 
-    def operations_raw(self):
+    def operations_hashes_raw(self):
+        try:
+            return len(self.operations).to_bytes(4, 'big') + b''.join([op.hash() for op in self.operations])
+        except Operation.VerifyError:
+            raise self.VerifyError("at least one of the operations is not properly signed")
+
+    def operations_full_raw(self):
         try:
             return len(self.operations).to_bytes(4, 'big') + b''.join(
                 [len(op).to_bytes(4, 'big') + op for op in [op.raw() for op in self.operations]])
@@ -133,7 +136,7 @@ class Block:
         ret += bytes(self.previous_block)
         ret += self.timestamp.to_bytes(4, 'big')
         ret += self.operations_limit.to_bytes(4, 'big')
-        ret += self.operations_raw()
+        ret += self.operations_hashes_raw()
         ret += self.difficulty.to_bytes(4, 'big')
         ret += self.padding.to_bytes(4, 'big')
         return ret
@@ -150,11 +153,13 @@ class Block:
         ret += len(self.signature).to_bytes(4, 'big') + self.signature
         return ret
 
-    @classmethod
-    def from_raw(cls, revision_id, raw):  # FIXME
-        if len(revision_id) != 32:
-            raise cls.VerifyError("wrong revision_id")
+    def raw_with_operations(self):
+        ret = self.operations_full_raw()
+        ret += self.raw()
+        return ret
 
+    @classmethod
+    def __from_raw_and_operations(cls, raw, operations):  # FIXME
         buffer = BytesIO(raw)
 
         if read_uint32(buffer) != cls.VERSION:
@@ -163,8 +168,15 @@ class Block:
         previous_block = BlockRev.from_id(read_bytes(buffer, 32))
         timestamp = read_uint32(buffer)
         operations_limit = read_uint32(buffer)
-        operations = [Operation.from_raw(op) for op in
-                      [read_sized_bytes(buffer) for _ in range(read_uint32(buffer))]]
+
+        operations_hashes = [read_bytes(buffer, 32) for _ in range(read_uint32(buffer))]
+        if operations is None:
+            operations = [Operation.get(h) for h in operations_hashes]
+        else:
+            for (h, op) in zip(operations_hashes, operations):
+                if h != op.hash():
+                    raise cls.VerifyError("wrong given operations list")
+
         difficulty = read_uint32(buffer)
         padding = read_uint32(buffer)
         checksum = read_bytes(buffer, 32)
@@ -187,10 +199,19 @@ class Block:
 
         block.verify()
 
-        if revision_id != block.hash():
-            raise cls.VerifyError("wrong revision_id")
-
         return block
+
+    @classmethod
+    def from_raw(cls, raw):
+        return cls.__from_raw_and_operations(raw, None)
+
+    @classmethod
+    def from_raw_with_operations(cls, raw):
+        buffer = BytesIO(raw)
+        operations = [Operation.from_raw(read_sized_bytes(buffer)) for _ in range(read_uint32(buffer))]
+
+        return cls.__from_raw_and_operations(buffer.read(), operations)
+
 
     # Database operations
 

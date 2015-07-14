@@ -45,6 +45,10 @@ class Operation:
         else:
             raise self.VerifyError("operation is not signed")
 
+    def verify_revision_id(self, revision_id):
+        if revision_id != self.hash():
+            raise self.VerifyError("wrong revision_id")
+
     def verify(self):
         self.verify_signature()
 
@@ -129,10 +133,6 @@ class Operation:
         operation.verify()
 
         return operation
-
-    def verify_revision_id(self, revision_id):
-        if revision_id != self.hash():
-            raise self.VerifyError("wrong revision_id")
 
     # Database operations
 
