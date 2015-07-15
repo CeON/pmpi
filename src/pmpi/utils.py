@@ -1,4 +1,5 @@
 from hashlib import sha256
+
 from src.pmpi import RawFormatError
 
 

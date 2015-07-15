@@ -42,19 +42,6 @@ class Database:
         pass
 
 
-# class UsingDatabase:
-#     database = None
-#
-#     @classmethod
-#     def initialise_database(cls, database):
-#         cls.database = database
-#
-#     class DatabaseRequired(Exception):
-#         pass
-#
-#
-
-
 def initialise_database(filename):
     global __database
 

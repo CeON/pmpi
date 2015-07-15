@@ -107,7 +107,7 @@ class Operation:
         return self.unsigned_raw() + len(self.signature).to_bytes(4, 'big') + self.signature
 
     @classmethod
-    def from_raw(cls, raw):
+    def __from_raw_without_verifying(cls, raw):
         buffer = BytesIO(raw)
 
         if read_uint32(buffer) != cls.VERSION:
@@ -130,8 +130,12 @@ class Operation:
         operation.public_key = public_key
         operation.signature = signature
 
-        operation.verify()
+        return operation
 
+    @classmethod
+    def from_raw(cls, raw):
+        operation = cls.__from_raw_without_verifying(raw)
+        operation.verify()
         return operation
 
     # Database operations
@@ -145,7 +149,7 @@ class Operation:
     @database_required
     def get(cls, database, revision_id):
         try:
-            operation = Operation.from_raw(database.get(Database.OPERATIONS, revision_id))
+            operation = Operation.__from_raw_without_verifying(database.get(Database.OPERATIONS, revision_id))
             operation.verify_revision_id(revision_id)
             return operation
         except KeyError:

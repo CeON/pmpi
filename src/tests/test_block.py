@@ -24,10 +24,10 @@ class TestSingleBlock(TestCase):
             Operation(OperationRev(), uuid4(), 'http://example2.com/', [self.public_key])
         ]
 
-        self.block = Block(BlockRev(), self.timestamp, self.operations)
-
         for op in self.operations:
             sign_object(self.public_key, self.private_key, op)
+
+        self.block = Block.from_operations_list(BlockRev(), self.timestamp, self.operations)
 
         self.block.mine()
         sign_object(self.public_key, self.private_key, self.block)
@@ -113,6 +113,10 @@ class TestMultipleBlocks(TestCase):
     pass  # TODO
 
 
+class TestBlockNoDatabase(TestCase):
+    pass  # TODO
+
+
 class TestBlockDatabase(TestCase):
     def setUp(self):
         initialise_database('test_database_file')
@@ -165,16 +169,19 @@ class TestBlockDatabase(TestCase):
 
         timestamp = int(time.time()) - 100
 
-        self.blocks = [Block(BlockRev(), timestamp, self.operations[0])]
+        self.blocks = [Block.from_operations_list(BlockRev(), timestamp, self.operations[0])]
         self.blocks[0].mine()
         sign_object(self.public_key, self.private_key, self.blocks[0])
-        self.blocks.append(Block(BlockRev.from_revision(self.blocks[0]), timestamp + 20, self.operations[1]))
+        self.blocks.append(
+            Block.from_operations_list(BlockRev.from_revision(self.blocks[0]), timestamp + 20, self.operations[1]))
         self.blocks[1].mine()
         sign_object(self.public_key, self.private_key, self.blocks[1])
-        self.blocks.append(Block(BlockRev.from_revision(self.blocks[1]), timestamp + 40, self.operations[2]))
+        self.blocks.append(
+            Block.from_operations_list(BlockRev.from_revision(self.blocks[1]), timestamp + 40, self.operations[2]))
         self.blocks[2].mine()
         sign_object(self.public_key, self.private_key, self.blocks[2])
-        self.blocks.append(Block(BlockRev.from_revision(self.blocks[1]), timestamp + 60, self.operations[3]))
+        self.blocks.append(
+            Block.from_operations_list(BlockRev.from_revision(self.blocks[1]), timestamp + 60, self.operations[3]))
         self.blocks[3].mine()
         sign_object(self.public_key, self.private_key, self.blocks[3])
 
@@ -227,7 +234,7 @@ class TestBlockDatabase(TestCase):
         self.assertCountEqual(Block.get_revision_id_list(), [block.hash() for block in self.blocks[:2]])
 
         with self.assertRaisesRegex(Block.ChainError, "can't remove: blocked by another block"):
-                self.blocks[0].remove()
+            self.blocks[0].remove()
 
         self.blocks[1].remove()
         self.blocks[0].remove()

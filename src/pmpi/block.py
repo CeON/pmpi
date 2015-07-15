@@ -17,6 +17,7 @@ class Block:
 
     :type previous_block: BlockRev
     :type timestamp: int
+    :type operations_hashes: list[bytes]
     :type operations: list[Operation]
     :type public_key: VerifyingKey
     :type signature: NoneType | bytes
@@ -28,27 +29,34 @@ class Block:
 
     VERSION = 1
 
-    def __init__(self, previous_block, timestamp, operations):
+    def __init__(self, previous_block, timestamp, operations_hashes):
         """
 
         :type previous_block: BlockRev
         :type timestamp: int
-        :type operations: list[Operation]
+        :type operations_hashes: list[bytes]
         :param previous_block: BlockRevID of the previous block
         :param timestamp: time of block creation
-        :param operations: the list of operations that the new block will contain
+        :param operations_hashes: the list of operations' hashes that the new block will contain
         """
         self.previous_block = previous_block
         self.timestamp = timestamp
-        self.operations = operations
+        self.operations_hashes = operations_hashes
+        self.operations = []
         self.public_key = None
         self.signature = None
 
-        self.difficulty = 1  # TODO what value shoud be the default, and what does the difficulty mean in particular?
+        self.difficulty = 1  # TODO what value should be the default, and what does the difficulty mean in particular?
         self.padding = 0
         self.checksum = None
 
         self.operations_limit = 5  # TODO what value should be the default?
+
+    @classmethod
+    def from_operations_list(cls, previous_block, timestamp, operations):
+        block = cls(previous_block, timestamp, [op.hash() for op in operations])
+        block.operations = operations
+        return block
 
     def checksum_correct(self):
         """
@@ -81,8 +89,16 @@ class Block:
         if revision_id != self.hash():
             raise self.VerifyError("wrong revision_id")
 
+    def refresh_operations(self):
+        try:
+            if self.operations_hashes != [op.hash() for op in self.operations]:
+                self.operations = [Operation.get(h) for h in self.operations_hashes]
+        except Operation.VerifyError:
+            raise self.VerifyError("at least one of the operations is not properly signed")
+
     def verify(self):  # FIXME
         self.verify_signature()
+        self.refresh_operations()
 
         for op in self.operations:
             op.verify()
@@ -119,17 +135,21 @@ class Block:
     # Serialization and deserialization
 
     def operations_hashes_raw(self):
-        try:
-            return len(self.operations).to_bytes(4, 'big') + b''.join([op.hash() for op in self.operations])
-        except Operation.VerifyError:
-            raise self.VerifyError("at least one of the operations is not properly signed")
+        self.refresh_operations()
+        return len(self.operations_hashes).to_bytes(4, 'big') + b''.join(self.operations_hashes)
+        # TODO should we check the correctness of operations??
+        # try:
+        #     return len(self.operations).to_bytes(4, 'big') + b''.join([op.hash() for op in self.operations])
+        # except Operation.VerifyError:
+        #     raise self.VerifyError("at least one of the operations is not properly signed")
 
     def operations_full_raw(self):
-        try:
-            return len(self.operations).to_bytes(4, 'big') + b''.join(
-                [len(op).to_bytes(4, 'big') + op for op in [op.raw() for op in self.operations]])
-        except Operation.VerifyError:
-            raise self.VerifyError("at least one of the operations is not properly signed")
+        self.refresh_operations()
+        # try:
+        return len(self.operations).to_bytes(4, 'big') + b''.join(
+            [len(op_raw).to_bytes(4, 'big') + op_raw for op_raw in [op.raw() for op in self.operations]])
+        # except Operation.VerifyError:
+        #     raise self.VerifyError("at least one of the operations is not properly signed")
 
     def unmined_raw(self):
         ret = self.VERSION.to_bytes(4, 'big')
@@ -159,7 +179,7 @@ class Block:
         return ret
 
     @classmethod
-    def __from_raw_and_operations(cls, raw, operations):
+    def __from_raw_without_verifying(cls, raw):
         buffer = BytesIO(raw)
 
         if read_uint32(buffer) != cls.VERSION:
@@ -170,12 +190,13 @@ class Block:
         operations_limit = read_uint32(buffer)
 
         operations_hashes = [read_bytes(buffer, 32) for _ in range(read_uint32(buffer))]
-        if operations is None:
-            operations = [Operation.get(h) for h in operations_hashes]
-        else:
-            for (h, op) in zip(operations_hashes, operations):
-                if h != op.hash():
-                    raise cls.VerifyError("wrong given operations list")
+
+        # if operations is None:
+        #     operations = timer(lambda:[Operation.get(h) for h in operations_hashes])()
+        # else:
+        #     for (h, op) in zip(operations_hashes, operations):
+        #         if h != op.hash():
+        #             raise cls.VerifyError("wrong given operations list")
 
         difficulty = read_uint32(buffer)
         padding = read_uint32(buffer)
@@ -189,7 +210,7 @@ class Block:
         if int.from_bytes(previous_block.get_id(), 'big') == 0:
             previous_block = BlockRev()
 
-        block = cls(previous_block, timestamp, operations)
+        block = cls(previous_block, timestamp, operations_hashes)
         block.operations_limit = operations_limit
         block.difficulty = difficulty
         block.padding = padding
@@ -197,8 +218,17 @@ class Block:
         block.public_key = public_key
         block.signature = signature
 
-        block.verify()
+        return block
 
+    @classmethod
+    def __from_raw_and_operations(cls, raw, operations):
+        block = cls.__from_raw_without_verifying(raw)
+        if operations is not None:
+            for (h, op) in zip(block.operations_hashes, operations):
+                if h != op.hash():
+                    raise cls.VerifyError("wrong given operations list")
+            block.operations = operations
+        block.verify()
         return block
 
     @classmethod
@@ -223,8 +253,11 @@ class Block:
     @database_required
     def get(cls, database, revision_id):
         try:
-            block = Block.from_raw(database.get(Database.BLOCKS, revision_id))
-            block.verify_revision_id(revision_id)
+            block = Block.__from_raw_without_verifying(database.get(Database.BLOCKS, revision_id))
+            # TODO without verifying??
+            # block.verify_revision_id(revision_id)
+            # TODO .put() DO verify block... Without this line, getting blocks is much faster
+            # TODO (there is no need to get block's operations from the database).
             return block
         except KeyError:
             raise cls.DoesNotExist
@@ -264,6 +297,9 @@ class Block:
             database.delete(Database.BLOCKS, revision_id)
 
             # TODO when putting block, we are (currently) putting also operations. Should we remove them here?
+            self.refresh_operations()
+            for op in self.operations:
+                op.remove()
 
         except ObjectDoesNotExist:
             raise self.DoesNotExist
