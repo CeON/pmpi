@@ -1,8 +1,8 @@
 from uuid import UUID
 
-from src.pmpi.core import Database, database_required
-from src.pmpi.exceptions import ObjectDoesNotExist
-from src.pmpi.operation import OperationRev
+from pmpi.core import Database, database_required
+from pmpi.exceptions import ObjectDoesNotExist
+from pmpi.operation import OperationRev
 
 
 class Identifier:
@@ -26,7 +26,7 @@ class Identifier:
         return cls(operation.uuid, OperationRev.from_revision(operation))
 
     def verify(self):
-        if self.uuid != self.operation_rev.get_revision().uuid:
+        if self.uuid != self.operation_rev.revision.uuid:
             raise self.VerifyingError("uuid mismatch")
 
     # Database operations

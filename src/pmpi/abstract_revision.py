@@ -1,3 +1,6 @@
+from pmpi.abstract_signed_object import AbstractSignedObject
+
+
 class AbstractRevision:
     _id = None
     _revision = None
@@ -10,6 +13,9 @@ class AbstractRevision:
 
     @classmethod
     def from_revision(cls, revision):
+        """
+        :type revision: AbstractSignedObject
+        """
         rev = cls()
         rev._id = revision.hash()
         rev._revision = revision
@@ -24,17 +30,19 @@ class AbstractRevision:
     def _get_revision_from_database(self):
         raise NotImplementedError
 
-    def get_id(self):
+    @property
+    def id(self):
         return self._id
 
-    def get_revision(self):
+    @property
+    def revision(self):
+        if self._id is not None and self._revision is None:
+            self._revision = self._get_revision_from_database()
+
         if self._revision is not None:
             return self._revision
-        if self._id is not None:
-            # return Operation.get(self._id)
-            return self._get_revision_from_database()
-
-        return None
+        else:
+            return None
 
     def is_none(self):
         return self._id is None and self._revision is None

@@ -3,19 +3,20 @@ from unittest import TestCase
 from uuid import uuid4
 from ecdsa.keys import SigningKey
 
-from src.pmpi import Identifier, Operation
-from src.pmpi.core import Database, initialise_database, close_database
-from src.pmpi.operation import OperationRev
-from src.pmpi.utils import sign_object
+from pmpi.identifier import Identifier
+from pmpi.core import Database, initialise_database, close_database
+from pmpi.operation import OperationRev, Operation
+from pmpi.utils import sign_object
+from pmpi.public_key import PublicKey
 
 
 class TestIdentifier(TestCase):
     def setUp(self):
         self.uuid = uuid4()
         self.private_key = SigningKey.generate()
-        self.public_keys = [SigningKey.generate().get_verifying_key(), SigningKey.generate().get_verifying_key()]
+        self.public_keys = tuple(PublicKey.from_signing_key(SigningKey.generate()) for _ in range(2))
         self.operation = Operation(OperationRev(), self.uuid, 'http://example.com', self.public_keys)
-        sign_object(self.private_key.get_verifying_key(), self.private_key, self.operation)
+        sign_object(PublicKey.from_signing_key(self.private_key), self.private_key, self.operation)
         self.identifier = Identifier.from_operation(self.operation)
 
     def test_fields(self):
@@ -24,9 +25,9 @@ class TestIdentifier(TestCase):
 
     def test_operation_rev(self):
         self.assertIsInstance(self.identifier.operation_rev, OperationRev)
-        self.assertIsInstance(self.identifier.operation_rev.get_revision(), Operation)
+        self.assertIsInstance(self.identifier.operation_rev.revision, Operation)
 
-        op = self.identifier.operation_rev.get_revision()
+        op = self.identifier.operation_rev.revision
         self.assertEqual(op.uuid, self.uuid)
         self.assertEqual(op.address, 'http://example.com')
         self.assertEqual(op.owners, self.public_keys)
@@ -42,7 +43,7 @@ class TestNoDatabase(TestCase):
 
         operation = Operation(OperationRev(), uuid4(), 'http://example.com/', [])
         sk = SigningKey.generate()
-        sign_object(sk.get_verifying_key(), sk, operation)
+        sign_object(PublicKey.from_signing_key(sk), sk, operation)
         identifier = Identifier.from_operation(operation)
 
         with self.assertRaisesRegex(Database.InitialisationError, "initialise database first"):
@@ -57,12 +58,13 @@ class TestIdentifierDatabase(TestCase):
         initialise_database('test_database_file')
 
         self.operations = [
-            Operation(OperationRev(), uuid4(), 'http://example.com/' + url, [SigningKey.generate().get_verifying_key()])
+            Operation(OperationRev(), uuid4(), 'http://example.com/' + url,
+                      [PublicKey.from_signing_key(SigningKey.generate())])
             for url in ('first/', 'second/')]
 
         for op in self.operations:
             sk = SigningKey.generate()
-            sign_object(sk.get_verifying_key(), sk, op)
+            sign_object(PublicKey.from_signing_key(sk), sk, op)
             op.put()
 
         self.identifiers = [Identifier.from_operation(op) for op in self.operations]

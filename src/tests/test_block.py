@@ -6,23 +6,24 @@ import time
 
 from ecdsa.keys import SigningKey
 
-from src.pmpi.block import BlockRev, Block
-from src.pmpi.core import initialise_database, close_database
-from src.pmpi.exceptions import RawFormatError
-from src.pmpi.operation import Operation, OperationRev
-from src.pmpi.utils import sign_object
+from pmpi.block import BlockRev, Block
+from pmpi.core import initialise_database, close_database, Database
+from pmpi.exceptions import RawFormatError
+from pmpi.operation import Operation, OperationRev
+from pmpi.utils import sign_object, double_sha
+from pmpi.public_key import PublicKey
 
 
 class TestSingleBlock(TestCase):
     def setUp(self):
         self.private_key = SigningKey.generate()
-        self.public_key = self.private_key.get_verifying_key()
+        self.public_key = PublicKey.from_signing_key(self.private_key)
         self.timestamp = int(time.time())
 
-        self.operations = [
+        self.operations = (
             Operation(OperationRev(), uuid4(), 'http://example1.com/', [self.public_key]),
             Operation(OperationRev(), uuid4(), 'http://example2.com/', [self.public_key])
-        ]
+        )
 
         for op in self.operations:
             sign_object(self.public_key, self.private_key, op)
@@ -51,7 +52,7 @@ class TestSingleBlock(TestCase):
         unsigned_raw = self.block.unsigned_raw()
 
         self.assertIsInstance(unsigned_raw, bytes)
-        self.assertEqual(unsigned_raw, self.block.unmined_raw() + self.block.checksum)
+        self.assertEqual(unsigned_raw[:-32], self.block.unmined_raw())
 
     def test_raw(self):
         raw = self.block.raw()
@@ -59,7 +60,7 @@ class TestSingleBlock(TestCase):
         self.assertIsInstance(raw, bytes)
         self.assertEqual(raw,
                          self.block.unsigned_raw() +
-                         len(self.public_key.to_der()).to_bytes(4, 'big') + self.public_key.to_der() +
+                         len(self.public_key.der).to_bytes(4, 'big') + self.public_key.der +
                          len(self.block.signature).to_bytes(4, 'big') + self.block.signature)
 
     def test_from_raw(self):
@@ -67,11 +68,12 @@ class TestSingleBlock(TestCase):
 
         self.assertIsInstance(new_block, Block)
         for attr in ('previous_block', 'timestamp', 'operations_limit', 'difficulty',
-                     'padding', 'checksum', 'signature'):
+                     'padding', 'signature'):
             self.assertEqual(getattr(new_block, attr), getattr(self.block, attr))
 
         self.assertEqual(new_block.operations_full_raw(), self.block.operations_full_raw())
-        self.assertEqual(new_block.public_key.to_der(), self.block.public_key.to_der())
+        self.assertEqual(new_block.public_key.der, self.block.public_key.der)
+        self.assertEqual(new_block.is_checksum_correct(), self.block.is_checksum_correct())
 
     def test_verify(self):
         self.assertTrue(self.block.verify())
@@ -86,11 +88,7 @@ class TestSingleBlock(TestCase):
 
         with self.assertRaisesRegex(Block.VerifyError, "wrong signature"):
             mangled_raw = bytearray(raw)
-            try:
-                mangled_raw[-1] += 1
-            except ValueError:
-                mangled_raw[-1] -= 1
-
+            mangled_raw[-1] = 0
             Block.from_raw_with_operations(mangled_raw).verify_revision_id(self.block.hash())
 
         with self.assertRaisesRegex(Block.VerifyError, "wrong revision_id"):
@@ -100,13 +98,56 @@ class TestSingleBlock(TestCase):
             Block.from_raw_with_operations(raw).verify_revision_id(sha256(b'wrong hash'))
 
     def test_unsigned_operation(self):
-        self.block.operations[0].address = 'http://different.example.com/'
-
         with self.assertRaisesRegex(Block.VerifyError, "at least one of the operations is not properly signed"):
-            self.block.unmined_raw()
+            self.block = Block.from_operations_list(self.block.previous_block, self.block.timestamp, (
+                Operation(self.block.operations[0].previous_operation, self.block.operations[0].uuid,
+                          'http://different.example.com/', self.block.operations[0].owners),
+                self.block.operations[1]
+            ))
 
-        with self.assertRaisesRegex(Block.VerifyError, "at least one of the operations is not properly signed"):
-            self.block.raw_with_operations()
+    def test_wrong_checksum(self):
+        self.block._Block__checksum = double_sha(b'something')
+        with self.assertRaisesRegex(Block.VerifyError, "wrong checksum"):
+            self.block.unsigned_raw()
+
+    def test_block_not_signed(self):
+        block = Block.from_operations_list(BlockRev(), int(time.time()), self.operations)
+        with self.assertRaisesRegex(Block.VerifyError, "object is not signed"):
+            block.verify()
+
+
+class TestOperationsLimits(TestCase):
+    def setUp(self):
+        self.private_key = SigningKey.generate()
+        self.public_key = PublicKey.from_signing_key(self.private_key)
+
+        self.operations = [Operation(OperationRev(), uuid4(),
+                                     'http://example.com/', [self.public_key]) for _ in range(Block.MIN_OPERATIONS + 1)]
+        for op in self.operations:
+            sign_object(self.public_key, self.private_key, op)
+
+    def test_too_little(self):
+        block = Block.from_operations_list(BlockRev(), int(time.time()), self.operations[:Block.MIN_OPERATIONS - 1])
+        block.mine()
+        sign_object(self.public_key, self.private_key, block)
+        with self.assertRaisesRegex(Block.VerifyError, "number of operations doesn't satisfy limitations"):
+            block.verify()
+
+    def test_too_much(self):
+        block = Block.from_operations_list(BlockRev(), int(time.time()), self.operations)
+        block.operations_limit = Block.MIN_OPERATIONS
+        block.mine()
+        sign_object(self.public_key, self.private_key, block)
+        with self.assertRaisesRegex(Block.VerifyError, "number of operations doesn't satisfy limitations"):
+            block.verify()
+
+    def test_wrong_limit(self):
+        block = Block.from_operations_list(BlockRev(), int(time.time()), self.operations)
+        block.operations_limit = Block.MAX_OPERATIONS + 1
+        block.mine()
+        sign_object(self.public_key, self.private_key, block)
+        with self.assertRaisesRegex(Block.VerifyError, "operations_limit out of range"):
+            block.verify()
 
 
 class TestMultipleBlocks(TestCase):
@@ -114,7 +155,33 @@ class TestMultipleBlocks(TestCase):
 
 
 class TestBlockNoDatabase(TestCase):
-    pass  # TODO
+    def test_no_database(self):
+        with self.assertRaisesRegex(Database.InitialisationError, "initialise database first"):
+            Block.get_revision_id_list()
+
+        with self.assertRaisesRegex(Database.InitialisationError, "initialise database first"):
+            Block.get(sha256(b'something').digest())
+
+        private_key = SigningKey.generate()
+        public_key = PublicKey.from_signing_key(private_key)
+
+        operations = [
+            Operation(OperationRev(), uuid4(), 'http://example0.com/', [public_key]),
+            Operation(OperationRev(), uuid4(), 'http://example1.com/', [public_key])
+        ]
+
+        for op in operations:
+            sign_object(public_key, private_key, op)
+
+        block = Block.from_operations_list(BlockRev(), int(time.time()), operations)
+        block.mine()
+        sign_object(public_key, private_key, block)
+
+        with self.assertRaisesRegex(Database.InitialisationError, "initialise database first"):
+            block.put()
+
+        with self.assertRaisesRegex(Database.InitialisationError, "initialise database first"):
+            block.remove()
 
 
 class TestBlockDatabase(TestCase):
@@ -122,7 +189,7 @@ class TestBlockDatabase(TestCase):
         initialise_database('test_database_file')
 
         self.private_key = SigningKey.generate()
-        self.public_key = self.private_key.get_verifying_key()
+        self.public_key = PublicKey.from_signing_key(self.private_key)
         self.uuids = [uuid4() for _ in range(3)]
 
         self.operations = [[
@@ -208,8 +275,6 @@ class TestBlockDatabase(TestCase):
         self.assertCountEqual(revision_id_list, [block.hash() for block in self.blocks])
 
     def test_3_get_and_remove(self):
-        # TODO needs an investigation: runs very slowly...
-
         for block in self.blocks:
             block.put()
 
@@ -244,6 +309,14 @@ class TestBlockDatabase(TestCase):
                 block.remove()
 
         self.assertEqual(Block.get_revision_id_list(), [])
+
+    def test_4_wrong_previous_block(self):
+        self.blocks[0].previous_block = BlockRev.from_id(double_sha(b'something'))
+        self.blocks[0].mine()
+        sign_object(self.public_key, self.private_key, self.blocks[0])
+
+        with self.assertRaisesRegex(Block.ChainError, "previous_revision_id does not exist"):
+            self.blocks[0].verify()
 
     def tearDown(self):
         close_database()

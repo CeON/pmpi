@@ -1,5 +1,5 @@
 from bsddb3 import db
-from src.pmpi.exceptions import ObjectDoesNotExist
+from pmpi.exceptions import ObjectDoesNotExist
 
 __database = None
 
@@ -45,8 +45,8 @@ class Database:
 def initialise_database(filename):
     global __database
 
-    if __database is not None:  # TODO is it necessary?
-        close_database()
+    if __database is not None:
+        raise Database.InitialisationError("close opened database first")
     __database = Database(filename)
 
 
@@ -56,6 +56,8 @@ def close_database():
     if __database is not None:
         __database.close()
         __database = None
+    else:
+        raise Database.InitialisationError("there is no database to close")
 
 
 def database_required(function):

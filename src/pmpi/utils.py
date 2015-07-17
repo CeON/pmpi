@@ -1,6 +1,7 @@
 from hashlib import sha256
-
-from src.pmpi import RawFormatError
+from ecdsa.keys import SigningKey
+from pmpi.exceptions import RawFormatError
+from pmpi.public_key import PublicKey
 
 
 def read_bytes(buffer, size):
@@ -27,5 +28,11 @@ def double_sha(b):
 
 
 def sign_object(public_key, private_key, obj):
-    obj.public_key = public_key
-    obj.signature = private_key.sign_deterministic(obj.unsigned_raw())  # FIXME, hashfunc=sha256)
+    """
+    :type public_key: PublicKey
+    :type private_key: SigningKey
+    :type obj: AbstractSignedObject
+    """
+    obj.sign(public_key, private_key.sign_deterministic(obj.unsigned_raw()))  # FIXME, hashfunc=sha256) ??
+
+

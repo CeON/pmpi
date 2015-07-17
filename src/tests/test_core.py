@@ -1,8 +1,7 @@
 import os
 from unittest.case import TestCase
-
-from src.pmpi.core import Database
-from src.pmpi.revision import AbstractRevision
+from pmpi.abstract_revision import AbstractRevision
+from pmpi.core import Database, initialise_database, close_database
 
 
 class TestDatabase(TestCase):
@@ -17,6 +16,27 @@ class TestDatabase(TestCase):
 
     def tearDown(self):
         os.remove('test_database_file')
+
+
+class TestInitialiseDatabase(TestCase):
+    def test_initialise(self):
+        initialise_database('test_database_file')
+
+        with self.assertRaisesRegex(Database.InitialisationError, "close opened database first"):
+            initialise_database('test_database_file2')
+
+        with self.assertRaises(FileNotFoundError):
+            os.remove('test_database_file2')
+
+        close_database()
+        initialise_database('test_database_file2')
+        close_database()
+
+        with self.assertRaisesRegex(Database.InitialisationError, "there is no database to close"):
+            close_database()
+
+        os.remove('test_database_file')
+        os.remove('test_database_file2')
 
 
 class TestAbstractRevision(TestCase):
