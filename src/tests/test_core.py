@@ -25,7 +25,7 @@ class TestInitialiseDatabase(TestCase):
         with self.assertRaisesRegex(Database.InitialisationError, "close opened database first"):
             initialise_database('test_database_file2')
 
-        with self.assertRaises(FileNotFoundError):
+        with self.assertRaises(OSError):
             os.remove('test_database_file2')
 
         close_database()

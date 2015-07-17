@@ -13,7 +13,7 @@ from pmpi.public_key import PublicKey
 def test():
     try:
         os.remove('test_database_file')
-    except FileNotFoundError:
+    except OSError:
         pass
     initialise_database('test_database_file')
 
