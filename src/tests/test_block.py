@@ -262,7 +262,7 @@ class TestBlockDatabase(TestCase):
     def test_2_put(self):
         self.blocks[0].put()
 
-        with self.assertRaisesRegex(Block.ChainError, "revision_id already in database"):
+        with self.assertRaisesRegex(Block.DuplicatedError, "revision_id already in database"):
             self.blocks[0].put()
 
         self.blocks[1].put()
@@ -283,7 +283,7 @@ class TestBlockDatabase(TestCase):
             self.assertEqual(new_block.hash(), block.hash())
 
         for block in self.blocks[:2]:
-            with self.assertRaisesRegex(Block.ChainError, "can't remove: blocked by another block"):
+            with self.assertRaisesRegex(Block.ChainOperationBlockedError, "can't remove: blocked by another block"):
                 block.remove()
 
         self.assertCountEqual(Block.get_revision_id_list(), [block.hash() for block in self.blocks])
@@ -291,14 +291,14 @@ class TestBlockDatabase(TestCase):
         self.blocks[2].remove()
 
         for block in self.blocks[:2]:
-            with self.assertRaisesRegex(Block.ChainError, "can't remove: blocked by another block"):
+            with self.assertRaisesRegex(Block.ChainOperationBlockedError, "can't remove: blocked by another block"):
                 block.remove()
 
         self.blocks[3].remove()
 
         self.assertCountEqual(Block.get_revision_id_list(), [block.hash() for block in self.blocks[:2]])
 
-        with self.assertRaisesRegex(Block.ChainError, "can't remove: blocked by another block"):
+        with self.assertRaisesRegex(Block.ChainOperationBlockedError, "can't remove: blocked by another block"):
             self.blocks[0].remove()
 
         self.blocks[1].remove()

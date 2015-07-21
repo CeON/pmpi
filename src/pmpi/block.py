@@ -219,7 +219,7 @@ class Block(AbstractSignedObject):
         for rev in Block.get_revision_id_list():
             block = Block.get(rev)
             if block.previous_block.id == revision_id:
-                raise self.ChainError("can't remove: blocked by another block")
+                raise self.ChainOperationBlockedError("can't remove: blocked by another block")
 
     # Mine
 
@@ -256,8 +256,8 @@ class Block(AbstractSignedObject):
         for op in self.operations:
             try:
                 op.put()
-            except Operation.ChainError as e:
-                print(e, str(e))  # TODO
+            except Operation.DuplicatedError:
+                pass  # TODO is it correct? [probably in this case the operation should be updated.]
 
     @database_required
     def remove(self, database):

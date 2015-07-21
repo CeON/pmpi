@@ -194,7 +194,7 @@ class TestOperationDatabase(TestCase):
         sign_object(self.public_key, self.private_key, self.operations[0])
         self.operations[0].put()
 
-        with self.assertRaisesRegex(Operation.ChainError, "revision_id already in database"):
+        with self.assertRaisesRegex(Operation.DuplicatedError, "revision_id already in database"):
             self.operations[0].put()
 
         self.operations[1] = Operation(OperationRev.from_revision(self.operations[0]),
@@ -229,7 +229,7 @@ class TestOperationDatabase(TestCase):
             new_op = Operation.get(op.hash())
             self.assertEqual(new_op.hash(), op.hash())
 
-        with self.assertRaisesRegex(Operation.ChainError, "can't remove: blocked by another operation"):
+        with self.assertRaisesRegex(Operation.ChainOperationBlockedError, "can't remove: blocked by another operation"):
             self.operations[0].remove()
 
         self.assertCountEqual(Operation.get_revision_id_list(), [op.hash() for op in self.operations])
@@ -350,7 +350,7 @@ class TestOperationVerify(TestCase):
 
         # TODO can operation be updated? NOPE.
 
-        with self.assertRaisesRegex(Operation.ChainError, "revision_id already in database"):
+        with self.assertRaisesRegex(Operation.DuplicatedError, "revision_id already in database"):
             self.operation[2].put()
 
     def tearDown(self):

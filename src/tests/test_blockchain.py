@@ -4,6 +4,7 @@ from uuid import uuid4
 from ecdsa.keys import SigningKey
 import time
 from pmpi.block import Block, BlockRev
+from pmpi.blockchain import BlockChain
 from pmpi.core import initialise_database, close_database
 from pmpi.operation import Operation, OperationRev
 from pmpi.utils import sign_object
@@ -93,7 +94,7 @@ class TestBlockChain(TestCase):
         blocks.append(Block.from_operations_list(BlockRev.from_revision(blocks[2]), start_time + 30, [ops[8], ops[4]]))
         blocks[3].mine()
         sign_object(self.public_keys[0], self.private_keys[0], blocks[3])
-        blocks.append(Block.from_operations_list(BlockRev.from_revision(blocks[3]), start_time + 40, [ops[4], ops[7]]))
+        blocks.append(Block.from_operations_list(BlockRev.from_revision(blocks[2]), start_time + 40, [ops[4], ops[7]]))
         blocks[4].mine()
         sign_object(self.public_keys[0], self.private_keys[0], blocks[4])
         blocks.append(Block.from_operations_list(BlockRev.from_revision(blocks[3]), start_time + 50, [ops[7], ops[9]]))
@@ -110,6 +111,23 @@ class TestBlockChain(TestCase):
 
         for block in blocks:
             block.put()
+
+        print(blocks[1].previous_block.id)
+
+        block_chain = BlockChain()
+
+        block_chain_records_pattern = [
+            BlockChain.Record(1, b'\x00'*32, [blocks[1].hash()]),
+            BlockChain.Record(2, blocks[0].hash(), [blocks[2].hash()]),
+            BlockChain.Record(3, blocks[1].hash(), sorted([blocks[3].hash(), blocks[4].hash()])),
+            BlockChain.Record(4, blocks[2].hash(), [blocks[5].hash()]),
+            BlockChain.Record(4, blocks[2].hash(), [blocks[6].hash()]),
+            BlockChain.Record(5, blocks[3].hash(), []),
+            BlockChain.Record(5, blocks[4].hash(), [])
+        ]
+
+        for i in range(6):
+            self.assertEqual(block_chain.get_from_id(blocks[i].hash()), block_chain_records_pattern[i])
 
     def test_build_identifiers(self):
         pass

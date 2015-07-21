@@ -37,6 +37,7 @@ class Operation(AbstractSignedObject):
         self.__uuid = uuid
         self.__address = address
         self.__owners = tuple(owners)
+        self.__containing_blocks = []
 
     @classmethod
     def from_owners_der(cls, previous_operation, uuid, address, owners_der):
@@ -44,7 +45,7 @@ class Operation(AbstractSignedObject):
         op.__owners = tuple(PublicKey(der) for der in owners_der)
         return op
 
-    # Getters and setters
+    # Getters
 
     @property
     def previous_operation(self):
@@ -70,6 +71,10 @@ class Operation(AbstractSignedObject):
     def owners_verifying_keys(self):
         return tuple(owner.verifying_key for owner in self.owners)
 
+    @property
+    def containing_blocks(self):
+        return self.__containing_blocks
+
     # Serialization and deserialization
 
     def unsigned_raw(self):
@@ -77,8 +82,6 @@ class Operation(AbstractSignedObject):
         :return: Raw operation without signature data
         :raise self.VerifyError: when self.public_key is None
         """
-        # if self.public_key is None:
-        #     raise self.VerifyError("operation is not signed")
 
         ret = self.VERSION.to_bytes(4, 'big')
         ret += bytes(self.previous_operation)
@@ -87,8 +90,12 @@ class Operation(AbstractSignedObject):
         ret += bytes(self.address, 'utf-8')
         ret += len(self.owners).to_bytes(4, 'big')
         ret += b''.join([len(owner).to_bytes(4, 'big') + owner for owner in self.owners_der])
-        # ret += len(self.public_key.der).to_bytes(4, 'big')
-        # ret += self.public_key.der
+        return ret
+
+    def _database_raw(self):
+        raw = self.raw()
+        ret = len(raw).to_bytes(4, 'big') + raw
+        ret += len(self.containing_blocks).to_bytes(4, 'big') + b''.join([block for block in self.containing_blocks])
         return ret
 
     @classmethod
@@ -113,6 +120,13 @@ class Operation(AbstractSignedObject):
 
         operation = cls.from_owners_der(previous_revision, uuid, address, owners_der)
         operation.sign(PublicKey(public_key_der), signature)
+        return operation
+
+    @classmethod
+    def _from_database_raw(cls, raw):
+        buffer = BytesIO(raw)
+        operation = super(Operation, cls)._from_database_raw(read_sized_bytes(buffer))
+        operation.__containing_blocks = [read_bytes(buffer, 32) for _ in range(read_uint32(buffer))]
         return operation
 
     # Verification
@@ -151,7 +165,7 @@ class Operation(AbstractSignedObject):
         for rev in Operation.get_revision_id_list():
             op = Operation.get(rev)
             if op.previous_operation.id == self.hash():
-                raise self.ChainError("can't remove: blocked by another operation")
+                raise self.ChainOperationBlockedError("can't remove: blocked by another operation")
 
     # Database operations
 

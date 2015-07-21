@@ -50,6 +50,9 @@ class AbstractSignedObject:  # TODO maybe some other -- better -- name (?)
         ret += len(self.__signature).to_bytes(4, 'big') + self.__signature
         return ret
 
+    def _database_raw(self):
+        return self.raw()
+
     @classmethod
     def _from_raw_without_verifying(cls, raw):
         raise NotImplementedError
@@ -59,6 +62,10 @@ class AbstractSignedObject:  # TODO maybe some other -- better -- name (?)
         obj = cls._from_raw_without_verifying(raw)
         obj.verify()
         return obj
+
+    @classmethod
+    def _from_database_raw(cls, raw):
+        return cls._from_raw_without_verifying(raw)
 
     # Verification
 
@@ -101,7 +108,7 @@ class AbstractSignedObject:  # TODO maybe some other -- better -- name (?)
     @database_required
     def get(cls, database, revision_id):
         try:
-            obj = cls._from_raw_without_verifying(database.get(cls._get_dbname(), revision_id))
+            obj = cls._from_database_raw(database.get(cls._get_dbname(), revision_id))
             # obj.verify_revision_id(revision_id) # TODO can we omit this check? [probably we can]
             return obj
         except KeyError:
@@ -116,9 +123,9 @@ class AbstractSignedObject:  # TODO maybe some other -- better -- name (?)
 
         try:
             self.get(revision_id)
-            raise self.ChainError("revision_id already in database")
+            raise self.DuplicatedError("revision_id already in database")
         except self.DoesNotExist:
-            database.put(self._get_dbname(), revision_id, self.raw())
+            database.put(self._get_dbname(), revision_id, self._database_raw())
 
     @database_required
     def remove(self, database):
@@ -126,7 +133,7 @@ class AbstractSignedObject:  # TODO maybe some other -- better -- name (?)
 
         try:
             database.delete(self._get_dbname(), self.hash())
-        except:
+        except ObjectDoesNotExist:
             raise self.DoesNotExist
 
     # Exceptions
@@ -138,6 +145,12 @@ class AbstractSignedObject:  # TODO maybe some other -- better -- name (?)
         pass
 
     class ChainError(Exception):
+        pass
+
+    class DuplicatedError(ChainError):
+        pass
+
+    class ChainOperationBlockedError(ChainError):
         pass
 
     class OwnershipError(Exception):

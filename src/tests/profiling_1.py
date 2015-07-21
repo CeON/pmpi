@@ -92,7 +92,7 @@ def test():
         try:
             block.remove()
             raise AssertionError
-        except Block.ChainError:
+        except Block.ChainOperationBlockedError:
             pass
 
     assert sorted(Block.get_revision_id_list()) == sorted([block.hash() for block in obj_blocks])
@@ -103,7 +103,7 @@ def test():
         try:
             block.remove()
             raise AssertionError
-        except Block.ChainError:
+        except Block.ChainOperationBlockedError:
             pass
 
     obj_blocks[3].remove()
@@ -113,7 +113,7 @@ def test():
     try:
         obj_blocks[0].remove()
         raise AssertionError
-    except Block.ChainError:
+    except Block.ChainOperationBlockedError:
         pass
 
     obj_blocks[1].remove()
