@@ -127,7 +127,7 @@ class TestBlockChain(TestCase):
         ]
 
         for i in range(6):
-            self.assertEqual(block_chain.get_from_id(blocks[i].hash()), block_chain_records_pattern[i])
+            self.assertEqual(block_chain.get(blocks[i].hash()), block_chain_records_pattern[i])
 
     def test_build_identifiers(self):
         pass
