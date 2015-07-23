@@ -1,8 +1,14 @@
 language: python
+python:
+  - "3.4"
+env:
+  - BERKELEYDB_DIR=/usr
 before_install:
   - sudo apt-get update -qq
   - sudo apt-get install -qq libdb5.1 libdb5.1-dev
-  - sudo ln -s /usr/lib/x86_64-linux-gnu/libdb-5.1.a /usr/lib/libdb-5.1.a
-python:
-  - "3.4"
-script: nosetests
+install:
+  - pip install coveralls
+script:
+  nosetests
+after_success:
+  coveralls
