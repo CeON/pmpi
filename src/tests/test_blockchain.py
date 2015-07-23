@@ -129,6 +129,23 @@ class TestBlockChain(TestCase):
         for i in range(6):
             self.assertEqual(block_chain.get(blocks[i].hash()), block_chain_records_pattern[i])
 
+    def test_only_one_genesis_block(self):
+        ops = self.add_operations()
+        blocks = [
+            Block.from_operations_list(BlockRev(), 42, [ops[1], ops[3], ops[4]]),
+            Block.from_operations_list(BlockRev(), 43, [ops[5], ops[7], ops[9]])
+        ]
+
+        for block in blocks:
+            block.mine()
+            sign_object(self.public_keys[0], self.private_keys[0], block)
+
+        blocks[0].put()
+
+        for block in blocks:
+            with self.assertRaisesRegex(Block.GenesisBlockDuplication, "trying to create multiple genesis blocks"):
+                block.put()
+
     def test_build_identifiers(self):
         pass
 

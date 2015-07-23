@@ -4,8 +4,10 @@ from unittest.case import TestCase
 from uuid import uuid4
 
 from ecdsa.curves import NIST256p
+
 from ecdsa.keys import SigningKey
 
+from pmpi.block import BlockRev
 from pmpi.core import initialise_database, close_database, Database
 from pmpi.exceptions import RawFormatError
 from pmpi.operation import Operation, OperationRev
@@ -13,9 +15,21 @@ from pmpi.utils import sign_object
 from pmpi.public_key import PublicKey
 
 
+class MockOperation(Operation):  # TODO can I do this? unittest.mock.Mock was introduced in python 3.3
+    """
+    This class replaces put and remove methods to their equivalents from AbstractSignedObject. Without this replacement
+    we wouldn't construct and verify Operation objects in these tests without constructing Blocks objects -- that is
+    performed in other files (test_block.py)
+    """
+    def put(self):
+        super(Operation, self).put()
+
+    def remove(self):
+        super(Operation, self).remove()
+
+
 class TestSingleOperation(TestCase):
     def setUp(self):
-        # dummy signature:
         self.private_key = SigningKey.generate(curve=NIST256p)
         self.public_key = PublicKey.from_signing_key(self.private_key)
 
@@ -111,7 +125,6 @@ class TestSingleOperation(TestCase):
 
 class TestMultipleOperations(TestCase):
     def setUp(self):
-        # dummy signatures:
         self.private_keys = [SigningKey.generate(curve=NIST256p) for _ in range(3)]
         self.public_keys = [PublicKey.from_signing_key(private_key) for private_key in self.private_keys]
 
@@ -170,6 +183,7 @@ class TestMultipleOperations(TestCase):
 
 class TestOperationDatabase(TestCase):
     def setUp(self):
+
         initialise_database('test_database_file')
 
         self.private_key = SigningKey.generate()
@@ -177,9 +191,9 @@ class TestOperationDatabase(TestCase):
 
         uuid = uuid4()
         self.operations = [
-            Operation(OperationRev(), uuid, 'http://example.com/', [self.public_key]),
-            Operation(OperationRev(), uuid, 'http://example2.com/', [self.public_key]),
-            Operation(OperationRev(), uuid4(), 'http://example3.com/', [self.public_key])
+            MockOperation(OperationRev(), uuid, 'http://example.com/', [self.public_key]),
+            MockOperation(OperationRev(), uuid, 'http://example2.com/', [self.public_key]),
+            MockOperation(OperationRev(), uuid4(), 'http://example3.com/', [self.public_key])
         ]
 
     def test_0_empty(self):
@@ -191,16 +205,17 @@ class TestOperationDatabase(TestCase):
             Operation.get(self.operations[0].hash())
 
     def test_2_put(self):
+
         sign_object(self.public_key, self.private_key, self.operations[0])
         self.operations[0].put()
 
-        with self.assertRaisesRegex(Operation.DuplicatedError, "revision_id already in database"):
+        with self.assertRaisesRegex(Operation.DuplicationError, "revision_id already in the database"):
             self.operations[0].put()
 
-        self.operations[1] = Operation(OperationRev.from_revision(self.operations[0]),
-                                       self.operations[1].uuid,
-                                       self.operations[1].address,
-                                       self.operations[1].owners)
+        self.operations[1] = MockOperation(OperationRev.from_revision(self.operations[0]),
+                                           self.operations[1].uuid,
+                                           self.operations[1].address,
+                                           self.operations[1].owners)
         sign_object(self.public_key, self.private_key, self.operations[1])
 
         self.operations[1].put()
@@ -216,10 +231,10 @@ class TestOperationDatabase(TestCase):
     def test_3_get_and_remove(self):
         sign_object(self.public_key, self.private_key, self.operations[0])
 
-        self.operations[1] = Operation(OperationRev.from_revision(self.operations[0]),
-                                       self.operations[1].uuid,
-                                       self.operations[1].address,
-                                       self.operations[1].owners)
+        self.operations[1] = MockOperation(OperationRev.from_revision(self.operations[0]),
+                                           self.operations[1].uuid,
+                                           self.operations[1].address,
+                                           self.operations[1].owners)
 
         for op in self.operations:
             sign_object(self.public_key, self.private_key, op)
@@ -228,9 +243,6 @@ class TestOperationDatabase(TestCase):
         for op in self.operations:
             new_op = Operation.get(op.hash())
             self.assertEqual(new_op.hash(), op.hash())
-
-        with self.assertRaisesRegex(Operation.ChainOperationBlockedError, "can't remove: blocked by another operation"):
-            self.operations[0].remove()
 
         self.assertCountEqual(Operation.get_revision_id_list(), [op.hash() for op in self.operations])
 
@@ -265,15 +277,14 @@ class TestNoDatabase(TestCase):
         sign_object(PublicKey.from_signing_key(sk), sk, operation)
 
         with self.assertRaisesRegex(Database.InitialisationError, "initialise database first"):
-            operation.put()
+            operation.put(BlockRev())
 
         with self.assertRaisesRegex(Database.InitialisationError, "initialise database first"):
-            operation.remove()
+            operation.remove(BlockRev())
 
 
 class TestOperationVerify(TestCase):
     def setUp(self):
-        # self.db = Database('test_database_file')
         initialise_database('test_database_file')
 
         self.private_keys = [SigningKey.generate(), SigningKey.generate()]
@@ -282,9 +293,9 @@ class TestOperationVerify(TestCase):
         uuid = uuid4()
 
         self.operation = [
-            Operation(OperationRev(), uuid, 'http://example.com/', [self.public_keys[1]]),
-            Operation(OperationRev(), uuid, 'http://example2.com/', [self.public_keys[0], self.public_keys[1]]),
-            Operation(OperationRev(), uuid4(), 'http://example3.com/', [self.public_keys[1]])
+            MockOperation(OperationRev(), uuid, 'http://example.com/', [self.public_keys[1]]),
+            MockOperation(OperationRev(), uuid, 'http://example2.com/', [self.public_keys[0], self.public_keys[1]]),
+            MockOperation(OperationRev(), uuid4(), 'http://example3.com/', [self.public_keys[1]])
         ]
 
     def test_put_operation0(self):
@@ -300,13 +311,13 @@ class TestOperationVerify(TestCase):
 
         self.operation[0].put()
 
-        with self.assertRaisesRegex(Operation.ChainError, "trying to create minting operation for existing uuid"):
+        with self.assertRaisesRegex(Operation.ChainError, "trying to create a minting operation for an existing uuid"):
             self.operation[1].put()
 
-        self.operation[1] = Operation(OperationRev.from_revision(self.operation[0]),
-                                      self.operation[1].uuid,
-                                      self.operation[1].address,
-                                      self.operation[1].owners)
+        self.operation[1] = MockOperation(OperationRev.from_revision(self.operation[0]),
+                                          self.operation[1].uuid,
+                                          self.operation[1].address,
+                                          self.operation[1].owners)
 
         sign_object(self.public_keys[0], self.private_keys[0], self.operation[1])
 
@@ -318,10 +329,10 @@ class TestOperationVerify(TestCase):
         self.operation[1].put()
 
     def test_put_operation_2(self):
-        self.operation[2] = Operation(OperationRev.from_id(sha256(b'wrong hash').digest()),
-                                      self.operation[2].uuid,
-                                      self.operation[2].address,
-                                      self.operation[2].owners)
+        self.operation[2] = MockOperation(OperationRev.from_id(sha256(b'wrong hash').digest()),
+                                          self.operation[2].uuid,
+                                          self.operation[2].address,
+                                          self.operation[2].owners)
 
         sign_object(self.public_keys[1], self.private_keys[1], self.operation[2])
 
@@ -330,27 +341,25 @@ class TestOperationVerify(TestCase):
 
         sign_object(self.public_keys[0], self.private_keys[0], self.operation[1])
 
-        self.operation[2] = Operation(OperationRev.from_revision(self.operation[1]),
-                                      self.operation[2].uuid,
-                                      self.operation[2].address,
-                                      self.operation[2].owners)
+        self.operation[2] = MockOperation(OperationRev.from_revision(self.operation[1]),
+                                          self.operation[2].uuid,
+                                          self.operation[2].address,
+                                          self.operation[2].owners)
 
         sign_object(self.public_keys[1], self.private_keys[1], self.operation[2])
 
         with self.assertRaisesRegex(Operation.VerifyError, "uuid mismatch"):
             self.operation[2].put()
 
-        self.operation[2] = Operation(OperationRev(),
-                                      self.operation[2].uuid,
-                                      self.operation[2].address,
-                                      self.operation[2].owners)
+        self.operation[2] = MockOperation(OperationRev(),
+                                          self.operation[2].uuid,
+                                          self.operation[2].address,
+                                          self.operation[2].owners)
 
         sign_object(self.public_keys[1], self.private_keys[1], self.operation[2])
         self.operation[2].put()
 
-        # TODO can operation be updated? NOPE.
-
-        with self.assertRaisesRegex(Operation.DuplicatedError, "revision_id already in database"):
+        with self.assertRaisesRegex(Operation.DuplicationError, "revision_id already in the database"):
             self.operation[2].put()
 
     def tearDown(self):

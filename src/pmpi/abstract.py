@@ -4,7 +4,54 @@ from pmpi.exceptions import ObjectDoesNotExist
 from pmpi.utils import double_sha
 
 
-class AbstractSignedObject:  # TODO maybe some other -- better -- name (?)
+class AbstractRevision:
+    _id = None
+    _revision = None
+
+    @classmethod
+    def from_id(cls, identifier):
+        rev = cls()
+        rev._id = identifier
+        return rev
+
+    @classmethod
+    def from_revision(cls, revision):
+        """
+        :type revision: AbstractSignedObject
+        """
+        rev = cls()
+        rev._id = revision.hash()
+        rev._revision = revision
+        return rev
+
+    def __bytes__(self):
+        return self._id if self._id is not None else bytes(32)
+
+    def __eq__(self, other):
+        return bytes(self) == bytes(other)
+
+    def _get_revision_from_database(self):
+        raise NotImplementedError
+
+    @property
+    def id(self):
+        return self._id
+
+    @property
+    def revision(self):
+        if self._id is not None and self._revision is None:
+            self._revision = self._get_revision_from_database()
+
+        if self._revision is not None:
+            return self._revision
+        else:
+            return None
+
+    def is_none(self):
+        return self._id is None and self._revision is None
+
+
+class AbstractSignedObject:
     """
     :type __public_key: PublicKey
     :type __signature: SigningKey
@@ -106,13 +153,28 @@ class AbstractSignedObject:  # TODO maybe some other -- better -- name (?)
 
     @classmethod
     @database_required
+    def exist(cls, database, revision_id):
+        try:
+            database.get(cls._get_dbname(), revision_id)
+            return True
+        except KeyError:
+            return False
+
+    @classmethod
+    @database_required
     def get(cls, database, revision_id):
         try:
             obj = cls._from_database_raw(database.get(cls._get_dbname(), revision_id))
-            # obj.verify_revision_id(revision_id) # TODO can we omit this check? [probably we can]
             return obj
         except KeyError:
             raise cls.DoesNotExist
+
+    def is_in_database(self):
+        try:
+            self.get(self.hash())
+            return True
+        except self.DoesNotExist:
+            return False
 
     @database_required
     def put(self, database):
@@ -121,11 +183,10 @@ class AbstractSignedObject:  # TODO maybe some other -- better -- name (?)
 
         revision_id = self.hash()
 
-        try:
-            self.get(revision_id)
-            raise self.DuplicatedError("revision_id already in database")
-        except self.DoesNotExist:
+        if not self.is_in_database():
             database.put(self._get_dbname(), revision_id, self._database_raw())
+        else:
+            raise self.DuplicationError("revision_id already in the database")
 
     @database_required
     def remove(self, database):
@@ -147,7 +208,7 @@ class AbstractSignedObject:  # TODO maybe some other -- better -- name (?)
     class ChainError(Exception):
         pass
 
-    class DuplicatedError(ChainError):
+    class DuplicationError(ChainError):
         pass
 
     class ChainOperationBlockedError(ChainError):
@@ -155,4 +216,3 @@ class AbstractSignedObject:  # TODO maybe some other -- better -- name (?)
 
     class OwnershipError(Exception):
         pass
-

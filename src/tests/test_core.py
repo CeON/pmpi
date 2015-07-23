@@ -1,6 +1,6 @@
 import os
 from unittest.case import TestCase
-from pmpi.abstract_revision import AbstractRevision
+from pmpi.abstract import AbstractRevision
 from pmpi.core import Database, initialise_database, close_database
 
 

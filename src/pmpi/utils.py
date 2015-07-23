@@ -33,6 +33,6 @@ def sign_object(public_key, private_key, obj):
     :type private_key: SigningKey
     :type obj: AbstractSignedObject
     """
-    obj.sign(public_key, private_key.sign_deterministic(obj.unsigned_raw()))  # FIXME, hashfunc=sha256) ??
+    obj.sign(public_key, private_key.sign_deterministic(obj.unsigned_raw()))
 
 

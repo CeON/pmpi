@@ -150,10 +150,6 @@ class TestOperationsLimits(TestCase):
             block.verify()
 
 
-class TestMultipleBlocks(TestCase):
-    pass  # TODO
-
-
 class TestBlockNoDatabase(TestCase):
     def test_no_database(self):
         with self.assertRaisesRegex(Database.InitialisationError, "initialise database first"):
@@ -262,10 +258,14 @@ class TestBlockDatabase(TestCase):
     def test_2_put(self):
         self.blocks[0].put()
 
-        with self.assertRaisesRegex(Block.DuplicatedError, "revision_id already in database"):
+        with self.assertRaisesRegex(Block.GenesisBlockDuplication, "trying to create multiple genesis blocks"):
             self.blocks[0].put()
 
         self.blocks[1].put()
+
+        with self.assertRaisesRegex(Block.DuplicationError, "revision_id already in the database"):
+            self.blocks[1].put()
+
         self.blocks[2].put()
         self.blocks[3].put()
 

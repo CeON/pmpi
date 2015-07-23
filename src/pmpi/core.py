@@ -1,6 +1,8 @@
 from bsddb3 import db
 from pmpi.exceptions import ObjectDoesNotExist
 
+import pmpi.blockchain
+
 __database = None
 
 
@@ -15,6 +17,18 @@ class Database:
         for dbname in self.DBNAMES:
             self.__db[dbname] = db.DB()
             self.__db[dbname].open(filename, dbname=dbname, dbtype=db.DB_HASH, flags=db.DB_CREATE)
+
+        self.__blockchain = None
+
+    @property
+    def blockchain(self):
+        return self.__blockchain
+
+    def initialise_blockchain(self):
+        if self.__blockchain is None:
+            self.__blockchain = pmpi.blockchain.BlockChain()
+        else:
+            raise self.InitialisationError("BlockChain has been already initialised")
 
     def length(self, dbname):
         return len(self.__db[dbname])
@@ -48,6 +62,7 @@ def initialise_database(filename):
     if __database is not None:
         raise Database.InitialisationError("close opened database first")
     __database = Database(filename)
+    __database.initialise_blockchain()
 
 
 def close_database():

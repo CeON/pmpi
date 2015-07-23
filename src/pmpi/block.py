@@ -1,20 +1,19 @@
 from io import BytesIO
-from pmpi.abstract_revision import AbstractRevision
-
-from pmpi.core import database_required, Database
 from pmpi.exceptions import RawFormatError
 from pmpi.operation import Operation
 from pmpi.utils import double_sha, read_bytes, read_uint32, read_sized_bytes
 from pmpi.public_key import PublicKey
-from pmpi.abstract_signed_object import AbstractSignedObject
+
+import pmpi.abstract
+import pmpi.core
 
 
-class BlockRev(AbstractRevision):
+class BlockRev(pmpi.abstract.AbstractRevision):
     def _get_revision_from_database(self):
         return Block.get(self._id)
 
 
-class Block(AbstractSignedObject):
+class Block(pmpi.abstract.AbstractSignedObject):
     """
 
     :type previous_block: BlockRev
@@ -48,7 +47,7 @@ class Block(AbstractSignedObject):
         self.__operations_hashes = tuple(operations_hashes)
         self.__operations = tuple()
 
-        self.difficulty = 1  # TODO what value should be the default, and what does the difficulty mean in particular?
+        self.difficulty = 1
         self.padding = 0
         self.__checksum = None
 
@@ -134,7 +133,7 @@ class Block(AbstractSignedObject):
         difficulty = read_uint32(buffer)
         padding = read_uint32(buffer)
         checksum = read_bytes(buffer, 32)
-        public_key_der = read_sized_bytes(buffer)  # VerifyingKey.from_der(read_sized_bytes(buffer))
+        public_key_der = read_sized_bytes(buffer)
         signature = read_sized_bytes(buffer)
 
         if len(buffer.read()) > 0:
@@ -177,25 +176,30 @@ class Block(AbstractSignedObject):
     # Verification
 
     def _update_operations(self):
-        # TODO when some of operations (objects) changes, it probably gets the old values from the database
-        # TODO   or raise Operation.DoesNotExist (is it correct?)
         try:
             if self.operations_hashes != tuple(op.hash() for op in self.__operations):
                 self.__operations = tuple(Operation.get(h) for h in self.operations_hashes)
         except Operation.VerifyError:
             raise self.VerifyError("at least one of the operations is not properly signed")
 
-    def verify(self):  # FIXME
+    def verify(self):
         self.verify_signature()
 
+        operations_counter = {h: 0 for h in self.operations_hashes}
         for op in self.operations:
             op.verify()
-        # TODO verify, if operations don't make trees instead of chains
+            if bytes(op.previous_operation) in operations_counter:
+                operations_counter[bytes(op.previous_operation)] += 1
+
+        if not all([count <= 1 for count in operations_counter.values()]):
+            raise self.ChainError("operations are creating tree inside the block")
 
         try:
             prev_block = self.previous_block.revision
             if prev_block is not None:
-                pass  # TODO check integrity of operation chains
+                pass  # TODO check integrity of operation chains.
+                # TODO also: should it check if the previous block is in the database?
+                # TODO [or should it be moved to put_verify?]
         except self.DoesNotExist:
             raise self.ChainError("previous_revision_id does not exist")
 
@@ -209,21 +213,21 @@ class Block(AbstractSignedObject):
 
         return True
 
-    def put_verify(self):
-        pass  # TODO?
+    @pmpi.core.database_required
+    def put_verify(self, database):
+        prev_block = self.previous_block.revision
+        if prev_block is None:
+            if len(database.blockchain.get(bytes(BlockRev())).next_ids) > 0:
+                raise Block.GenesisBlockDuplication("trying to create multiple genesis blocks")
 
-    def remove_verify(self):
-        revision_id = self.hash()
-
-        # FIXME naive algorithm !!!
-        for rev in Block.get_revision_id_list():
-            block = Block.get(rev)
-            if block.previous_block.id == revision_id:
-                raise self.ChainOperationBlockedError("can't remove: blocked by another block")
+    @pmpi.core.database_required
+    def remove_verify(self, database):
+        if len(database.blockchain.get(self.hash()).next_ids) > 0:
+            raise self.ChainOperationBlockedError("can't remove: blocked by another block")
 
     # Mine
 
-    def mine(self):  # FIXME method currently for testing purposes
+    def mine(self):
         unmined_raw = self.unmined_raw()
         assert 0 < self.difficulty < 256  # TODO ...
         target = ((1 << 256 - self.difficulty) - 1).to_bytes(32, 'big')
@@ -240,29 +244,27 @@ class Block(AbstractSignedObject):
 
     @classmethod
     def _get_dbname(cls):
-        return Database.BLOCKS
+        return pmpi.core.Database.BLOCKS
 
-    @database_required
-    def get_blockchain(self, database):
-        raise NotImplementedError  # TODO
-
-    @database_required
+    @pmpi.core.database_required
     def put(self, database):
+        print(''.join(["{:02x}".format(x) for x in self.hash()]), "-- PUT --")
         super(Block, self).put()
-
-        # TODO is it right place for doing this (putting operations, as below) ??
-        # TODO (and, shouldn't we catch any exceptions, e.g. Operation.ChainError, should we?)
+        database.blockchain.add_block(self)
 
         for op in self.operations:
-            try:
-                op.put()
-            except Operation.DuplicatedError:
-                pass  # TODO is it correct? [probably in this case the operation should be updated.]
+            op.put(BlockRev.from_revision(self))
 
-    @database_required
+    @pmpi.core.database_required
     def remove(self, database):
         super(Block, self).remove()
-        # TODO when putting block, we are (currently) putting also operations. Should we remove them here?
-        # self.refresh_operations()
+        database.blockchain.remove_block(self)
+
+        # op.remove is actually smart -- removes operation only if it isn't needed any more.
         for op in self.operations:
-            op.remove()
+            op.remove(BlockRev.from_revision(self))
+
+    # Exceptions
+
+    class GenesisBlockDuplication(pmpi.abstract.AbstractSignedObject.DuplicationError):
+        pass

@@ -1,7 +1,8 @@
 from collections import deque
 
-from pmpi.block import Block, BlockRev
 from pmpi.exceptions import ObjectDoesNotExist
+
+import pmpi.block
 
 
 class BlockChain:
@@ -11,7 +12,7 @@ class BlockChain:
         def __init__(self, depth, previous_id, next_ids):
             self.__depth = depth
             self.__previous_id = previous_id
-            self.__next_ids = next_ids
+            self.__next_ids = tuple(next_ids)
 
         @property
         def depth(self):
@@ -26,8 +27,10 @@ class BlockChain:
             return self.__next_ids
 
         def __eq__(self, other):
-            return self.depth == other.depth and self.previous_id == other.previous_id \
-                and self.next_ids == other.next_ids
+            for attr in self.FIELD_NAMES:
+                if getattr(self, attr) != getattr(other, attr):
+                    return False
+            return True
 
         class DoesNotExist(ObjectDoesNotExist):
             pass
@@ -36,8 +39,8 @@ class BlockChain:
         self.__map = {}
         queue = deque()
 
-        for revision_id in Block.get_revision_id_list():
-            block = Block.get(revision_id)
+        for revision_id in pmpi.block.Block.get_revision_id_list():
+            block = pmpi.block.Block.get(revision_id)
 
             if bytes(block.previous_block) in self.__map:
                 self.__modify_record(bytes(block.previous_block), next_ids=lambda x: x + (revision_id,))
@@ -49,17 +52,18 @@ class BlockChain:
             else:
                 self.__map[revision_id] = self.Record(None, bytes(block.previous_block), tuple())
 
-        self.__modify_record(b'\x00' * 32, depth=lambda _: 0)
+        if len(self.__map) > 0:
+            self.__modify_record(b'\x00' * 32, depth=lambda _: 0)
+        else:
+            self.__map[b'\x00' * 32] = self.Record(0, None, tuple())
         queue.append(b'\x00' * 32)
 
-        max_depth = -1
         self.__head = None
 
         while len(queue) > 0:
             rev = queue.popleft()
             depth = self.__map[rev].depth
-            if depth > max_depth:
-                max_depth = depth
+            if depth > self.max_depth:
                 self.__head = rev
             self.__modify_record(rev, next_ids=lambda x: sorted(x))
             for next_rev in self.__map[rev].next_ids:
@@ -77,23 +81,46 @@ class BlockChain:
             for field in self.Record.FIELD_NAMES}
         self.__map[revision_id] = self.Record(**new_kwargs)
 
-    def __add_block(self, block_rev_id: BlockRev):
-        if bytes(block_rev_id) in self.__map:
-            raise self.BlockDuplication("block has already been added to the mapping")
+    def add_block(self, block):
+        if block.hash() in self.__map:
+            raise self.BlockDuplicationError("block has already been added to the mapping")
         else:
             try:
-                previous_id = bytes(block_rev_id.revision.previous_block)
-                self.__modify_record(previous_id, next_ids=lambda x: sorted(x + (bytes(block_rev_id),)))
-                self.__map[bytes(block_rev_id)] = self.Record(self.get(previous_id).depth + 1,
-                                                              previous_id, tuple())
+                previous_id = bytes(block.previous_block)
+                self.__modify_record(previous_id, next_ids=lambda x: sorted(x + (block.hash(),)))
+                self.__map[block.hash()] = self.Record(self.get(previous_id).depth + 1,
+                                                       previous_id, tuple())
             except KeyError:
                 raise self.Record.DoesNotExist("previous block id doesn't exist")
 
-    def get(self, revision_id: bytes) -> Record:
-        return self.__map[revision_id]
+    def remove_block(self, block):
+        if block.hash() not in self.__map:
+            raise pmpi.block.Block.DoesNotExist("block isn't in the blockchain")
+        else:
+            record = self.get(block.hash())
+            if len(record.next_ids) > 0:
+                raise pmpi.block.Block.ChainOperationBlockedError("can't remove: block has following blocks")
 
-    # def get_from_block_rev_id(self, block_rev_id: BlockRev):
-    #     return self.get_from_id(bytes(block_rev_id))
+            self.__modify_record(record.previous_id, next_ids=lambda x: tuple(ni for ni in x if ni != block.hash()))
+            del self.__map[block.hash()]
+
+            if self.head == block.hash():
+                # rebuild head and depth
+                for key, record in self.__map.items():
+                    if len(record.next_ids) == 0:
+                        if record.depth > self.max_depth:
+                            self.__head = key
+
+                self.__set_head(self.__head)
+
+    def get(self, revision_id: bytes) -> Record:
+        try:
+            return self.__map[revision_id]
+        except KeyError:
+            raise pmpi.block.Block.DoesNotExist("block isn't in the blockchain")
+
+    def exist(self, revision_id: bytes):
+        return revision_id in self.__map
 
     @property
     def head(self):
@@ -101,7 +128,10 @@ class BlockChain:
 
     @property
     def max_depth(self):
-        return self.get(self.head).depth
+        try:
+            return self.get(self.head).depth
+        except pmpi.block.Block.DoesNotExist:
+            return -1
 
     def update_blocks(self):
         new_max_depth = self.max_depth
@@ -109,9 +139,9 @@ class BlockChain:
 
         for block in self.__get_new_blocks():
             # TODO some additional criteria for accepting block
+
             block.put()  # put() is making all needed validations before actually putting the block into the database
-            block_rev = BlockRev.from_revision(block)
-            self.__add_block(block_rev)
+            block_rev = pmpi.block.BlockRev.from_revision(block)
             record = self.get(bytes(block_rev))
 
             if record.depth > new_max_depth:
@@ -137,5 +167,18 @@ class BlockChain:
             records = [(rev_id, self.get(rev_id)) for rev_id in (record[1].previous_id for record in records)]
         return records[0][0]
 
-    class BlockDuplication(Exception):
+    class BlockDuplicationError(Exception):
         pass
+
+    # TODO delete this debug method:
+    def show(self):
+        print("SHOW BLOCKCHAIN")
+
+        def s(b):
+            return int(b[0])
+
+        for k, record in self.__map.items():
+            print("block:", s(k))
+            print("previous:", s(record.previous_id) if record.previous_id is not None else "None")
+            print("next:", [s(n) for n in record.next_ids])
+            print("---")

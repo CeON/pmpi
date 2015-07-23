@@ -2,6 +2,7 @@ import os
 from unittest import TestCase
 from uuid import uuid4
 from ecdsa.keys import SigningKey
+from pmpi.block import Block, BlockRev
 
 from pmpi.identifier import Identifier
 from pmpi.core import Database, initialise_database, close_database
@@ -65,7 +66,12 @@ class TestIdentifierDatabase(TestCase):
         for op in self.operations:
             sk = SigningKey.generate()
             sign_object(PublicKey.from_signing_key(sk), sk, op)
-            op.put()
+
+        block = Block.from_operations_list(BlockRev(), 42, self.operations)
+        block.mine()
+        sk = SigningKey.generate()
+        sign_object(PublicKey.from_signing_key(sk), sk, block)
+        block.put()
 
         self.identifiers = [Identifier.from_operation(op) for op in self.operations]
 

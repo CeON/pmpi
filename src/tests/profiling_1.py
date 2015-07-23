@@ -108,8 +108,6 @@ def test():
 
     obj_blocks[3].remove()
 
-    # obj_assertCountEqual(Block.get_revision_id_list(), [block.hash() for block in obj_blocks[:2]])
-
     try:
         obj_blocks[0].remove()
         raise AssertionError
