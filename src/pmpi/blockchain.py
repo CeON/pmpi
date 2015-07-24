@@ -1,7 +1,6 @@
 from collections import deque
 
 from pmpi.exceptions import ObjectDoesNotExist
-
 import pmpi.block
 
 
@@ -42,15 +41,15 @@ class BlockChain:
         for revision_id in pmpi.block.Block.get_revision_id_list():
             block = pmpi.block.Block.get(revision_id)
 
-            if bytes(block.previous_block) in self.__map:
-                self.__modify_record(bytes(block.previous_block), next_ids=lambda x: x + (revision_id,))
+            if block.previous_block_rev.id in self.__map:
+                self.__modify_record(block.previous_block_rev.id, next_ids=lambda x: x + (revision_id,))
             else:
-                self.__map[bytes(block.previous_block)] = self.Record(None, None, (revision_id,))
+                self.__map[block.previous_block_rev.id] = self.Record(None, None, (revision_id,))
 
             if revision_id in self.__map:
-                self.__modify_record(revision_id, previous_id=lambda _: bytes(block.previous_block))
+                self.__modify_record(revision_id, previous_id=lambda _: block.previous_block_rev.id)
             else:
-                self.__map[revision_id] = self.Record(None, bytes(block.previous_block), tuple())
+                self.__map[revision_id] = self.Record(None, block.previous_block_rev.id, tuple())
 
         if len(self.__map) > 0:
             self.__modify_record(b'\x00' * 32, depth=lambda _: 0)
@@ -82,29 +81,28 @@ class BlockChain:
         self.__map[revision_id] = self.Record(**new_kwargs)
 
     def add_block(self, block):
-        if block.hash() in self.__map:
+        if block.id in self.__map:
             raise self.BlockDuplicationError("block has already been added to the mapping")
         else:
             try:
-                previous_id = bytes(block.previous_block)
-                self.__modify_record(previous_id, next_ids=lambda x: sorted(x + (block.hash(),)))
-                self.__map[block.hash()] = self.Record(self.get(previous_id).depth + 1,
-                                                       previous_id, tuple())
+                previous_id = block.previous_block_rev.id
+                self.__modify_record(previous_id, next_ids=lambda x: sorted(x + (block.id,)))
+                self.__map[block.id] = self.Record(self.get(previous_id).depth + 1, previous_id, tuple())
             except KeyError:
                 raise self.Record.DoesNotExist("previous block id doesn't exist")
 
     def remove_block(self, block):
-        if block.hash() not in self.__map:
+        if block.id not in self.__map:
             raise pmpi.block.Block.DoesNotExist("block isn't in the blockchain")
         else:
-            record = self.get(block.hash())
+            record = self.get(block.id)
             if len(record.next_ids) > 0:
                 raise pmpi.block.Block.ChainOperationBlockedError("can't remove: block has following blocks")
 
-            self.__modify_record(record.previous_id, next_ids=lambda x: tuple(ni for ni in x if ni != block.hash()))
-            del self.__map[block.hash()]
+            self.__modify_record(record.previous_id, next_ids=lambda x: tuple(ni for ni in x if ni != block.id))
+            del self.__map[block.id]
 
-            if self.head == block.hash():
+            if self.head == block.id:
                 # rebuild head and depth
                 for key, record in self.__map.items():
                     if len(record.next_ids) == 0:
@@ -142,11 +140,11 @@ class BlockChain:
 
             block.put()  # put() is making all needed validations before actually putting the block into the database
             block_rev = pmpi.block.BlockRev.from_revision(block)
-            record = self.get(bytes(block_rev))
+            record = self.get(block_rev.id)
 
             if record.depth > new_max_depth:
                 new_max_depth = record.depth
-                new_head = bytes(block_rev)
+                new_head = block_rev.id
 
         if new_max_depth > self.max_depth:
             self.__set_head(new_head)

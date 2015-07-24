@@ -10,15 +10,15 @@ import pmpi.core
 
 class BlockRev(pmpi.abstract.AbstractRevision):
     def _get_revision_from_database(self):
-        return Block.get(self._id)
+        return Block.get(self.id)
 
 
 class Block(pmpi.abstract.AbstractSignedObject):
     """
 
-    :type previous_block: BlockRev
+    :type previous_block_rev: BlockRev
     :type timestamp: int
-    :type __operations_hashes: tuple[bytes]
+    :type __operations_ids: tuple[bytes]
     :type __operations: tuple[Operation]
     :type difficulty: int
     :type padding: int
@@ -31,20 +31,20 @@ class Block(pmpi.abstract.AbstractSignedObject):
     MIN_OPERATIONS = 2
     MAX_OPERATIONS = 10
 
-    def __init__(self, previous_block, timestamp, operations_hashes):
+    def __init__(self, previous_block_rev, timestamp, operations_ids):
         """
 
-        :type previous_block: BlockRev
+        :type previous_block_rev: BlockRev
         :type timestamp: int
-        :type operations_hashes: tuple[bytes]
-        :param previous_block: BlockRevID of the previous block
+        :type operations_ids: tuple[bytes]
+        :param previous_block_rev: BlockRevID of the previous block
         :param timestamp: time of block creation
-        :param operations_hashes: the list of operations' hashes that the new block will contain
+        :param operations_ids: the list of operations' hashes that the new block will contain
         """
 
-        self.previous_block = previous_block
+        self.previous_block_rev = previous_block_rev
         self.timestamp = timestamp
-        self.__operations_hashes = tuple(operations_hashes)
+        self.__operations_ids = tuple(operations_ids)
         self.__operations = tuple()
 
         self.difficulty = 1
@@ -54,9 +54,9 @@ class Block(pmpi.abstract.AbstractSignedObject):
         self.operations_limit = self.MAX_OPERATIONS
 
     @classmethod
-    def from_operations_list(cls, previous_block, timestamp, operations):
+    def from_operations_list(cls, previous_block_rev, timestamp, operations):
         try:
-            block = cls(previous_block, timestamp, [op.hash() for op in operations])
+            block = cls(previous_block_rev, timestamp, [op.id for op in operations])
             block.__operations = tuple(operations)
             return block
         except Operation.VerifyError:
@@ -65,8 +65,8 @@ class Block(pmpi.abstract.AbstractSignedObject):
     # Getters and setters
 
     @property
-    def operations_hashes(self):
-        return self.__operations_hashes
+    def operations_ids(self):
+        return self.__operations_ids
 
     @property
     def operations(self):
@@ -75,7 +75,7 @@ class Block(pmpi.abstract.AbstractSignedObject):
 
     def extend_operations(self, new_operations):
         self.__operations += tuple(new_operations)
-        self.__operations_hashes += tuple(op.hash() for op in new_operations)
+        self.__operations_ids += tuple(op.id for op in new_operations)
 
     def is_checksum_correct(self):
         """
@@ -89,9 +89,9 @@ class Block(pmpi.abstract.AbstractSignedObject):
 
     # Serialization and deserialization
 
-    def operations_hashes_raw(self):
+    def operations_ids_raw(self):
         self._update_operations()
-        return len(self.operations_hashes).to_bytes(4, 'big') + b''.join(self.operations_hashes)
+        return len(self.operations_ids).to_bytes(4, 'big') + b''.join(self.operations_ids)
 
     def operations_full_raw(self):
         return len(self.operations).to_bytes(4, 'big') + b''.join(
@@ -99,10 +99,10 @@ class Block(pmpi.abstract.AbstractSignedObject):
 
     def unmined_raw(self):
         ret = self.VERSION.to_bytes(4, 'big')
-        ret += bytes(self.previous_block)
+        ret += self.previous_block_rev.id
         ret += self.timestamp.to_bytes(4, 'big')
         ret += self.operations_limit.to_bytes(4, 'big')
-        ret += self.operations_hashes_raw()
+        ret += self.operations_ids_raw()
         ret += self.difficulty.to_bytes(4, 'big')
         ret += self.padding.to_bytes(4, 'big')
         return ret
@@ -125,11 +125,11 @@ class Block(pmpi.abstract.AbstractSignedObject):
         if read_uint32(buffer) != cls.VERSION:
             raise RawFormatError("version number mismatch")
 
-        previous_block = BlockRev.from_id(read_bytes(buffer, 32))
+        previous_block_rev = BlockRev.from_id(read_bytes(buffer, 32))
         timestamp = read_uint32(buffer)
         operations_limit = read_uint32(buffer)
 
-        operations_hashes = [read_bytes(buffer, 32) for _ in range(read_uint32(buffer))]
+        operations_ids = [read_bytes(buffer, 32) for _ in range(read_uint32(buffer))]
         difficulty = read_uint32(buffer)
         padding = read_uint32(buffer)
         checksum = read_bytes(buffer, 32)
@@ -139,10 +139,10 @@ class Block(pmpi.abstract.AbstractSignedObject):
         if len(buffer.read()) > 0:
             raise RawFormatError("raw input too long")
 
-        if int.from_bytes(previous_block.id, 'big') == 0:
-            previous_block = BlockRev()
+        if int.from_bytes(previous_block_rev.id, 'big') == 0:
+            previous_block_rev = BlockRev()
 
-        block = cls(previous_block, timestamp, operations_hashes)
+        block = cls(previous_block_rev, timestamp, operations_ids)
         block.operations_limit = operations_limit
         block.difficulty = difficulty
         block.padding = padding
@@ -155,8 +155,8 @@ class Block(pmpi.abstract.AbstractSignedObject):
     def __from_raw_and_operations(cls, raw, operations):
         block = cls._from_raw_without_verifying(raw)
         if operations is not None:
-            for (h, op) in zip(block.operations_hashes, operations):
-                if h != op.hash():
+            for (h, op) in zip(block.operations_ids, operations):
+                if h != op.id:
                     raise cls.VerifyError("wrong given operations list")
             block.__operations = operations
         block.verify()
@@ -177,25 +177,25 @@ class Block(pmpi.abstract.AbstractSignedObject):
 
     def _update_operations(self):
         try:
-            if self.operations_hashes != tuple(op.hash() for op in self.__operations):
-                self.__operations = tuple(Operation.get(h) for h in self.operations_hashes)
+            if self.operations_ids != tuple(op.id for op in self.__operations):
+                self.__operations = tuple(Operation.get(h) for h in self.operations_ids)
         except Operation.VerifyError:
             raise self.VerifyError("at least one of the operations is not properly signed")
 
     def verify(self):
         self.verify_signature()
 
-        operations_counter = {h: 0 for h in self.operations_hashes}
+        operations_counter = {h: 0 for h in self.operations_ids}
         for op in self.operations:
             op.verify()
-            if bytes(op.previous_operation) in operations_counter:
-                operations_counter[bytes(op.previous_operation)] += 1
+            if op.previous_operation_rev.id in operations_counter:
+                operations_counter[op.previous_operation_rev.id] += 1
 
         if not all([count <= 1 for count in operations_counter.values()]):
             raise self.ChainError("operations are creating tree inside the block")
 
         try:
-            prev_block = self.previous_block.revision
+            prev_block = self.previous_block_rev.obj
             if prev_block is not None:
                 pass  # TODO check integrity of operation chains.
                 # TODO also: should it check if the previous block is in the database?
@@ -215,14 +215,14 @@ class Block(pmpi.abstract.AbstractSignedObject):
 
     @pmpi.core.database_required
     def put_verify(self, database):
-        prev_block = self.previous_block.revision
+        prev_block = self.previous_block_rev.obj
         if prev_block is None:
-            if len(database.blockchain.get(bytes(BlockRev())).next_ids) > 0:
+            if len(database.blockchain.get(BlockRev().id).next_ids) > 0:
                 raise Block.GenesisBlockDuplication("trying to create multiple genesis blocks")
 
     @pmpi.core.database_required
     def remove_verify(self, database):
-        if len(database.blockchain.get(self.hash()).next_ids) > 0:
+        if len(database.blockchain.get(self.id).next_ids) > 0:
             raise self.ChainOperationBlockedError("can't remove: blocked by another block")
 
     # Mine
@@ -248,7 +248,7 @@ class Block(pmpi.abstract.AbstractSignedObject):
 
     @pmpi.core.database_required
     def put(self, database):
-        print(''.join(["{:02x}".format(x) for x in self.hash()]), "-- PUT --")
+        print(''.join(["{:02x}".format(x) for x in self.id]), "-- PUT --")
         super(Block, self).put()
         database.blockchain.add_block(self)
 

@@ -112,22 +112,20 @@ class TestBlockChain(TestCase):
         for block in blocks:
             block.put()
 
-        print(blocks[1].previous_block.id)
-
         block_chain = BlockChain()
 
         block_chain_records_pattern = [
-            BlockChain.Record(1, b'\x00'*32, [blocks[1].hash()]),
-            BlockChain.Record(2, blocks[0].hash(), [blocks[2].hash()]),
-            BlockChain.Record(3, blocks[1].hash(), sorted([blocks[3].hash(), blocks[4].hash()])),
-            BlockChain.Record(4, blocks[2].hash(), [blocks[5].hash()]),
-            BlockChain.Record(4, blocks[2].hash(), [blocks[6].hash()]),
-            BlockChain.Record(5, blocks[3].hash(), []),
-            BlockChain.Record(5, blocks[4].hash(), [])
+            BlockChain.Record(1, b'\x00'*32, [blocks[1].id]),
+            BlockChain.Record(2, blocks[0].id, [blocks[2].id]),
+            BlockChain.Record(3, blocks[1].id, sorted([blocks[3].id, blocks[4].id])),
+            BlockChain.Record(4, blocks[2].id, [blocks[5].id]),
+            BlockChain.Record(4, blocks[2].id, [blocks[6].id]),
+            BlockChain.Record(5, blocks[3].id, []),
+            BlockChain.Record(5, blocks[4].id, [])
         ]
 
         for i in range(6):
-            self.assertEqual(block_chain.get(blocks[i].hash()), block_chain_records_pattern[i])
+            self.assertEqual(block_chain.get(blocks[i].id), block_chain_records_pattern[i])
 
     def test_only_one_genesis_block(self):
         ops = self.add_operations()

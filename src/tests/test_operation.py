@@ -1,7 +1,8 @@
-from hashlib import sha256
 import os
+from hashlib import sha256
 from unittest.case import TestCase
 from uuid import uuid4
+from unittest.mock import patch
 
 from ecdsa.curves import NIST256p
 
@@ -14,18 +15,7 @@ from pmpi.operation import Operation, OperationRev
 from pmpi.utils import sign_object
 from pmpi.public_key import PublicKey
 
-
-class MockOperation(Operation):  # TODO can I do this? unittest.mock.Mock was introduced in python 3.3
-    """
-    This class replaces put and remove methods to their equivalents from AbstractSignedObject. Without this replacement
-    we wouldn't construct and verify Operation objects in these tests without constructing Blocks objects -- that is
-    performed in other files (test_block.py)
-    """
-    def put(self):
-        super(Operation, self).put()
-
-    def remove(self):
-        super(Operation, self).remove()
+patch.object = patch.object
 
 
 class TestSingleOperation(TestCase):
@@ -39,7 +29,7 @@ class TestSingleOperation(TestCase):
         sign_object(self.public_key, self.private_key, self.operation)
 
     def test_fields(self):
-        self.assertEqual(self.operation.previous_operation, OperationRev())
+        self.assertEqual(self.operation.previous_operation_rev, OperationRev())
         self.assertEqual(self.operation.uuid, self.uuid)
         self.assertEqual(self.operation.address, 'http://example.com/')
         self.assertEqual(self.operation.owners, (self.public_key,))
@@ -48,7 +38,7 @@ class TestSingleOperation(TestCase):
     # noinspection PyPropertyAccess
     def test_immutable(self):
         with self.assertRaisesRegex(AttributeError, "can't set attribute"):
-            self.operation.previous_operation = OperationRev()
+            self.operation.previous_operation_rev = OperationRev()
         with self.assertRaisesRegex(AttributeError, "can't set attribute"):
             self.operation.uuid = uuid4()
         with self.assertRaisesRegex(AttributeError, "can't set attribute"):
@@ -77,7 +67,7 @@ class TestSingleOperation(TestCase):
         new_operation = Operation.from_raw(self.operation.raw())
 
         self.assertIsInstance(new_operation, Operation)
-        for attr in ('previous_operation', 'uuid', 'address', 'signature'):
+        for attr in ('previous_operation_rev', 'uuid', 'address', 'signature'):
             self.assertEqual(getattr(new_operation, attr), getattr(self.operation, attr))
         self.assertEqual(new_operation.owners_der, self.operation.owners_der)
         self.assertEqual(new_operation.public_key.der, self.operation.public_key.der)
@@ -105,7 +95,7 @@ class TestSingleOperation(TestCase):
             Operation.from_raw(raw).verify_revision_id(sha256(b'wrong hash').digest())  # different hash
 
     def test_owners(self):
-        self.operation = Operation(self.operation.previous_operation,
+        self.operation = Operation(self.operation.previous_operation_rev,
                                    self.operation.uuid,
                                    self.operation.address,
                                    [self.public_key, self.public_key])
@@ -114,7 +104,7 @@ class TestSingleOperation(TestCase):
         with self.assertRaisesRegex(Operation.VerifyError, "duplicated owners"):
             self.operation.verify()
 
-        self.operation = Operation(self.operation.previous_operation,
+        self.operation = Operation(self.operation.previous_operation_rev,
                                    self.operation.uuid,
                                    self.operation.address,
                                    [])
@@ -181,6 +171,9 @@ class TestMultipleOperations(TestCase):
         self.operation[2].verify()
 
 
+# noinspection PyArgumentList
+@patch.object(Operation, 'put', lambda self: super(Operation, self).put())
+@patch.object(Operation, 'remove', lambda self: super(Operation, self).remove())
 class TestOperationDatabase(TestCase):
     def setUp(self):
 
@@ -191,9 +184,9 @@ class TestOperationDatabase(TestCase):
 
         uuid = uuid4()
         self.operations = [
-            MockOperation(OperationRev(), uuid, 'http://example.com/', [self.public_key]),
-            MockOperation(OperationRev(), uuid, 'http://example2.com/', [self.public_key]),
-            MockOperation(OperationRev(), uuid4(), 'http://example3.com/', [self.public_key])
+            Operation(OperationRev(), uuid, 'http://example.com/', [self.public_key]),
+            Operation(OperationRev(), uuid, 'http://example2.com/', [self.public_key]),
+            Operation(OperationRev(), uuid4(), 'http://example3.com/', [self.public_key])
         ]
 
     def test_0_empty(self):
@@ -202,7 +195,7 @@ class TestOperationDatabase(TestCase):
     def test_1_get_from_empty(self):
         with self.assertRaises(Operation.DoesNotExist):
             sign_object(self.public_key, self.private_key, self.operations[0])
-            Operation.get(self.operations[0].hash())
+            Operation.get(self.operations[0].id)
 
     def test_2_put(self):
 
@@ -212,10 +205,10 @@ class TestOperationDatabase(TestCase):
         with self.assertRaisesRegex(Operation.DuplicationError, "revision_id already in the database"):
             self.operations[0].put()
 
-        self.operations[1] = MockOperation(OperationRev.from_revision(self.operations[0]),
-                                           self.operations[1].uuid,
-                                           self.operations[1].address,
-                                           self.operations[1].owners)
+        self.operations[1] = Operation(OperationRev.from_revision(self.operations[0]),
+                                       self.operations[1].uuid,
+                                       self.operations[1].address,
+                                       self.operations[1].owners)
         sign_object(self.public_key, self.private_key, self.operations[1])
 
         self.operations[1].put()
@@ -226,30 +219,30 @@ class TestOperationDatabase(TestCase):
         revision_id_list = Operation.get_revision_id_list()
 
         self.assertEqual(len(revision_id_list), 3)
-        self.assertCountEqual(revision_id_list, [op.hash() for op in self.operations])
+        self.assertCountEqual(revision_id_list, [op.id for op in self.operations])
 
     def test_3_get_and_remove(self):
         sign_object(self.public_key, self.private_key, self.operations[0])
 
-        self.operations[1] = MockOperation(OperationRev.from_revision(self.operations[0]),
-                                           self.operations[1].uuid,
-                                           self.operations[1].address,
-                                           self.operations[1].owners)
+        self.operations[1] = Operation(OperationRev.from_revision(self.operations[0]),
+                                       self.operations[1].uuid,
+                                       self.operations[1].address,
+                                       self.operations[1].owners)
 
         for op in self.operations:
             sign_object(self.public_key, self.private_key, op)
             op.put()
 
         for op in self.operations:
-            new_op = Operation.get(op.hash())
-            self.assertEqual(new_op.hash(), op.hash())
+            new_op = Operation.get(op.id)
+            self.assertEqual(new_op.id, op.id)
 
-        self.assertCountEqual(Operation.get_revision_id_list(), [op.hash() for op in self.operations])
+        self.assertCountEqual(Operation.get_revision_id_list(), [op.id for op in self.operations])
 
         self.operations[1].remove()
         self.operations[0].remove()
 
-        self.assertCountEqual(Operation.get_revision_id_list(), [self.operations[2].hash()])
+        self.assertCountEqual(Operation.get_revision_id_list(), [self.operations[2].id])
 
         self.operations[2].remove()
 
@@ -283,6 +276,9 @@ class TestNoDatabase(TestCase):
             operation.remove(BlockRev())
 
 
+# noinspection PyArgumentList
+@patch.object(Operation, 'put', lambda self: super(Operation, self).put())
+@patch.object(Operation, 'remove', lambda self: super(Operation, self).remove())
 class TestOperationVerify(TestCase):
     def setUp(self):
         initialise_database('test_database_file')
@@ -293,9 +289,9 @@ class TestOperationVerify(TestCase):
         uuid = uuid4()
 
         self.operation = [
-            MockOperation(OperationRev(), uuid, 'http://example.com/', [self.public_keys[1]]),
-            MockOperation(OperationRev(), uuid, 'http://example2.com/', [self.public_keys[0], self.public_keys[1]]),
-            MockOperation(OperationRev(), uuid4(), 'http://example3.com/', [self.public_keys[1]])
+            Operation(OperationRev(), uuid, 'http://example.com/', [self.public_keys[1]]),
+            Operation(OperationRev(), uuid, 'http://example2.com/', [self.public_keys[0], self.public_keys[1]]),
+            Operation(OperationRev(), uuid4(), 'http://example3.com/', [self.public_keys[1]])
         ]
 
     def test_put_operation0(self):
@@ -314,10 +310,10 @@ class TestOperationVerify(TestCase):
         with self.assertRaisesRegex(Operation.ChainError, "trying to create a minting operation for an existing uuid"):
             self.operation[1].put()
 
-        self.operation[1] = MockOperation(OperationRev.from_revision(self.operation[0]),
-                                          self.operation[1].uuid,
-                                          self.operation[1].address,
-                                          self.operation[1].owners)
+        self.operation[1] = Operation(OperationRev.from_revision(self.operation[0]),
+                                      self.operation[1].uuid,
+                                      self.operation[1].address,
+                                      self.operation[1].owners)
 
         sign_object(self.public_keys[0], self.private_keys[0], self.operation[1])
 
@@ -329,10 +325,10 @@ class TestOperationVerify(TestCase):
         self.operation[1].put()
 
     def test_put_operation_2(self):
-        self.operation[2] = MockOperation(OperationRev.from_id(sha256(b'wrong hash').digest()),
-                                          self.operation[2].uuid,
-                                          self.operation[2].address,
-                                          self.operation[2].owners)
+        self.operation[2] = Operation(OperationRev.from_id(sha256(b'wrong hash').digest()),
+                                      self.operation[2].uuid,
+                                      self.operation[2].address,
+                                      self.operation[2].owners)
 
         sign_object(self.public_keys[1], self.private_keys[1], self.operation[2])
 
@@ -341,20 +337,20 @@ class TestOperationVerify(TestCase):
 
         sign_object(self.public_keys[0], self.private_keys[0], self.operation[1])
 
-        self.operation[2] = MockOperation(OperationRev.from_revision(self.operation[1]),
-                                          self.operation[2].uuid,
-                                          self.operation[2].address,
-                                          self.operation[2].owners)
+        self.operation[2] = Operation(OperationRev.from_revision(self.operation[1]),
+                                      self.operation[2].uuid,
+                                      self.operation[2].address,
+                                      self.operation[2].owners)
 
         sign_object(self.public_keys[1], self.private_keys[1], self.operation[2])
 
         with self.assertRaisesRegex(Operation.VerifyError, "uuid mismatch"):
             self.operation[2].put()
 
-        self.operation[2] = MockOperation(OperationRev(),
-                                          self.operation[2].uuid,
-                                          self.operation[2].address,
-                                          self.operation[2].owners)
+        self.operation[2] = Operation(OperationRev(),
+                                      self.operation[2].uuid,
+                                      self.operation[2].address,
+                                      self.operation[2].owners)
 
         sign_object(self.public_keys[1], self.private_keys[1], self.operation[2])
         self.operation[2].put()

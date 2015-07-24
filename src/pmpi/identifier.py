@@ -26,7 +26,7 @@ class Identifier:
         return cls(operation.uuid, OperationRev.from_revision(operation))
 
     def verify(self):
-        if self.uuid != self.operation_rev.revision.uuid:
+        if self.uuid != self.operation_rev.obj.uuid:
             raise self.VerifyingError("uuid mismatch")
 
     # Database operations
@@ -61,7 +61,7 @@ class Identifier:
 
         :param database: provided by database_required decorator
         """
-        database.put(Database.IDENTIFIERS, self.uuid.bytes, bytes(self.operation_rev))
+        database.put(Database.IDENTIFIERS, self.uuid.bytes, self.operation_rev.id)
 
     @database_required
     def remove(self, database):

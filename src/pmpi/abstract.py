@@ -5,50 +5,47 @@ from pmpi.utils import double_sha
 
 
 class AbstractRevision:
-    _id = None
-    _revision = None
+    __id = None
+    __obj = None
 
     @classmethod
-    def from_id(cls, identifier):
+    def from_id(cls, obj_id):
         rev = cls()
-        rev._id = identifier
+        rev.__id = obj_id
         return rev
 
     @classmethod
-    def from_revision(cls, revision):
+    def from_revision(cls, obj):
         """
-        :type revision: AbstractSignedObject
+        :type obj: AbstractSignedObject
         """
         rev = cls()
-        rev._id = revision.hash()
-        rev._revision = revision
+        rev.__id = obj.id
+        rev.__obj = obj
         return rev
 
-    def __bytes__(self):
-        return self._id if self._id is not None else bytes(32)
+    # def __bytes__(self):
+    #     return self._id if self._id is not None else bytes(32)
 
     def __eq__(self, other):
-        return bytes(self) == bytes(other)
+        return self.id == other.id
 
     def _get_revision_from_database(self):
         raise NotImplementedError
 
     @property
     def id(self):
-        return self._id
+        return self.__id if self.__id is not None else bytes(32)
 
     @property
-    def revision(self):
-        if self._id is not None and self._revision is None:
-            self._revision = self._get_revision_from_database()
+    def obj(self):
+        if self.__id is not None and self.__obj is None:
+            self.__obj = self._get_revision_from_database()
 
-        if self._revision is not None:
-            return self._revision
-        else:
-            return None
+        return self.__obj
 
     def is_none(self):
-        return self._id is None and self._revision is None
+        return self.__id is None and self.__obj is None
 
 
 class AbstractSignedObject:
@@ -60,7 +57,7 @@ class AbstractSignedObject:
     __requires_signature_verification = True
     __public_key = None
     __signature = None
-    __hash = None
+    __id = None
 
     @property
     def public_key(self):
@@ -74,10 +71,11 @@ class AbstractSignedObject:
     def requires_signature_verification(self):
         return self.__requires_signature_verification
 
-    def hash(self):
-        if self.requires_signature_verification or self.__hash is None:
-            self.__hash = double_sha(self.raw())
-        return self.__hash
+    @property
+    def id(self):
+        if self.requires_signature_verification or self.__id is None:
+            self.__id = double_sha(self.raw())
+        return self.__id
 
     def sign(self, public_key, signature):
         self.__public_key = public_key
@@ -128,7 +126,7 @@ class AbstractSignedObject:
                 raise self.VerifyError("object is not signed")
 
     def verify_revision_id(self, revision_id):
-        if revision_id != self.hash():
+        if revision_id != self.id:
             raise self.VerifyError("wrong revision_id")
 
     def verify(self):
@@ -171,7 +169,7 @@ class AbstractSignedObject:
 
     def is_in_database(self):
         try:
-            self.get(self.hash())
+            self.get(self.id)
             return True
         except self.DoesNotExist:
             return False
@@ -181,7 +179,7 @@ class AbstractSignedObject:
         self.verify()
         self.put_verify()
 
-        revision_id = self.hash()
+        revision_id = self.id
 
         if not self.is_in_database():
             database.put(self._get_dbname(), revision_id, self._database_raw())
@@ -193,7 +191,7 @@ class AbstractSignedObject:
         self.remove_verify()
 
         try:
-            database.delete(self._get_dbname(), self.hash())
+            database.delete(self._get_dbname(), self.id)
         except ObjectDoesNotExist:
             raise self.DoesNotExist
 

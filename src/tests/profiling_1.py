@@ -85,8 +85,8 @@ def test():
         block.put()
 
     for block in obj_blocks:
-        new_block = Block.get(block.hash())
-        assert new_block.hash() == block.hash()
+        new_block = Block.get(block.id)
+        assert new_block.id == block.id
 
     for block in obj_blocks[:2]:
         try:
@@ -95,7 +95,7 @@ def test():
         except Block.ChainOperationBlockedError:
             pass
 
-    assert sorted(Block.get_revision_id_list()) == sorted([block.hash() for block in obj_blocks])
+    assert sorted(Block.get_revision_id_list()) == sorted([block.id for block in obj_blocks])
 
     obj_blocks[2].remove()
 

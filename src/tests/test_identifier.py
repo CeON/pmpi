@@ -26,9 +26,9 @@ class TestIdentifier(TestCase):
 
     def test_operation_rev(self):
         self.assertIsInstance(self.identifier.operation_rev, OperationRev)
-        self.assertIsInstance(self.identifier.operation_rev.revision, Operation)
+        self.assertIsInstance(self.identifier.operation_rev.obj, Operation)
 
-        op = self.identifier.operation_rev.revision
+        op = self.identifier.operation_rev.obj
         self.assertEqual(op.uuid, self.uuid)
         self.assertEqual(op.address, 'http://example.com')
         self.assertEqual(op.owners, self.public_keys)

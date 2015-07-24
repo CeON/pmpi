@@ -34,7 +34,7 @@ class TestSingleBlock(TestCase):
         sign_object(self.public_key, self.private_key, self.block)
 
     def test_fields(self):
-        self.assertEqual(self.block.previous_block, BlockRev())
+        self.assertEqual(self.block.previous_block_rev, BlockRev())
         self.assertEqual(self.block.timestamp, self.timestamp)
         self.assertEqual(self.block.operations, self.operations)
         self.assertEqual(self.block.operations_full_raw(),
@@ -67,7 +67,7 @@ class TestSingleBlock(TestCase):
         new_block = Block.from_raw_with_operations(self.block.raw_with_operations())
 
         self.assertIsInstance(new_block, Block)
-        for attr in ('previous_block', 'timestamp', 'operations_limit', 'difficulty',
+        for attr in ('previous_block_rev', 'timestamp', 'operations_limit', 'difficulty',
                      'padding', 'signature'):
             self.assertEqual(getattr(new_block, attr), getattr(self.block, attr))
 
@@ -89,7 +89,7 @@ class TestSingleBlock(TestCase):
         with self.assertRaisesRegex(Block.VerifyError, "wrong signature"):
             mangled_raw = bytearray(raw)
             mangled_raw[-1] = 0
-            Block.from_raw_with_operations(mangled_raw).verify_revision_id(self.block.hash())
+            Block.from_raw_with_operations(mangled_raw).verify_revision_id(self.block.id)
 
         with self.assertRaisesRegex(Block.VerifyError, "wrong revision_id"):
             Block.from_raw_with_operations(raw).verify_revision_id(b'wrong hash')
@@ -99,8 +99,8 @@ class TestSingleBlock(TestCase):
 
     def test_unsigned_operation(self):
         with self.assertRaisesRegex(Block.VerifyError, "at least one of the operations is not properly signed"):
-            self.block = Block.from_operations_list(self.block.previous_block, self.block.timestamp, (
-                Operation(self.block.operations[0].previous_operation, self.block.operations[0].uuid,
+            self.block = Block.from_operations_list(self.block.previous_block_rev, self.block.timestamp, (
+                Operation(self.block.operations[0].previous_operation_rev, self.block.operations[0].uuid,
                           'http://different.example.com/', self.block.operations[0].owners),
                 self.block.operations[1]
             ))
@@ -253,7 +253,7 @@ class TestBlockDatabase(TestCase):
 
     def test_1_get_from_empty(self):
         with self.assertRaises(Block.DoesNotExist):
-            Block.get(self.blocks[0].hash())
+            Block.get(self.blocks[0].id)
 
     def test_2_put(self):
         self.blocks[0].put()
@@ -272,21 +272,21 @@ class TestBlockDatabase(TestCase):
         revision_id_list = Block.get_revision_id_list()
 
         self.assertEqual(len(revision_id_list), 4)
-        self.assertCountEqual(revision_id_list, [block.hash() for block in self.blocks])
+        self.assertCountEqual(revision_id_list, [block.id for block in self.blocks])
 
     def test_3_get_and_remove(self):
         for block in self.blocks:
             block.put()
 
         for block in self.blocks:
-            new_block = Block.get(block.hash())
-            self.assertEqual(new_block.hash(), block.hash())
+            new_block = Block.get(block.id)
+            self.assertEqual(new_block.id, block.id)
 
         for block in self.blocks[:2]:
             with self.assertRaisesRegex(Block.ChainOperationBlockedError, "can't remove: blocked by another block"):
                 block.remove()
 
-        self.assertCountEqual(Block.get_revision_id_list(), [block.hash() for block in self.blocks])
+        self.assertCountEqual(Block.get_revision_id_list(), [block.id for block in self.blocks])
 
         self.blocks[2].remove()
 
@@ -296,7 +296,7 @@ class TestBlockDatabase(TestCase):
 
         self.blocks[3].remove()
 
-        self.assertCountEqual(Block.get_revision_id_list(), [block.hash() for block in self.blocks[:2]])
+        self.assertCountEqual(Block.get_revision_id_list(), [block.id for block in self.blocks[:2]])
 
         with self.assertRaisesRegex(Block.ChainOperationBlockedError, "can't remove: blocked by another block"):
             self.blocks[0].remove()
@@ -311,7 +311,7 @@ class TestBlockDatabase(TestCase):
         self.assertEqual(Block.get_revision_id_list(), [])
 
     def test_4_wrong_previous_block(self):
-        self.blocks[0].previous_block = BlockRev.from_id(double_sha(b'something'))
+        self.blocks[0].previous_block_rev = BlockRev.from_id(double_sha(b'something'))
         self.blocks[0].mine()
         sign_object(self.public_key, self.private_key, self.blocks[0])
 
