@@ -1,7 +1,10 @@
 from collections import deque
 
 from pmpi.exceptions import ObjectDoesNotExist
+import pmpi.database
 import pmpi.block
+import pmpi.identifier
+import pmpi.operation
 
 
 class BlockChain:
@@ -34,11 +37,14 @@ class BlockChain:
         class DoesNotExist(ObjectDoesNotExist):
             pass
 
+    # ROOT = pmpi.block.BlockRev().id
+    ROOT = bytes(32)
+
     def __init__(self):
         self.__map = {}
         queue = deque()
 
-        for revision_id in pmpi.block.Block.get_revision_id_list():
+        for revision_id in pmpi.block.Block.get_ids_list():
             block = pmpi.block.Block.get(revision_id)
 
             if block.previous_block_rev.id in self.__map:
@@ -52,10 +58,10 @@ class BlockChain:
                 self.__map[revision_id] = self.Record(None, block.previous_block_rev.id, tuple())
 
         if len(self.__map) > 0:
-            self.__modify_record(b'\x00' * 32, depth=lambda _: 0)
+            self.__modify_record(self.ROOT, depth=lambda _: 0)
         else:
-            self.__map[b'\x00' * 32] = self.Record(0, None, tuple())
-        queue.append(b'\x00' * 32)
+            self.__map[self.ROOT] = self.Record(0, None, tuple())
+        queue.append(self.ROOT)
 
         self.__head = None
 
@@ -111,9 +117,9 @@ class BlockChain:
 
                 self.__set_head(self.__head)
 
-    def get(self, revision_id: bytes) -> Record:
+    def get(self, block_id: bytes) -> Record:
         try:
-            return self.__map[revision_id]
+            return self.__map[block_id]
         except KeyError:
             raise pmpi.block.Block.DoesNotExist("block isn't in the blockchain")
 
@@ -139,7 +145,7 @@ class BlockChain:
             # TODO some additional criteria for accepting block
 
             block.put()  # put() is making all needed validations before actually putting the block into the database
-            block_rev = pmpi.block.BlockRev.from_revision(block)
+            block_rev = pmpi.block.BlockRev.from_obj(block)
             record = self.get(block_rev.id)
 
             if record.depth > new_max_depth:
@@ -149,14 +155,63 @@ class BlockChain:
         if new_max_depth > self.max_depth:
             self.__set_head(new_head)
 
+    def backward_blocks_chain(self, block_id, end_block_id):
+        chain = [block_id]
+        while block_id != self.ROOT and block_id != end_block_id:
+            block_id = self.get(block_id).previous_id
+            chain.append(block_id)
+
+        if block_id != end_block_id:
+            raise self.TreeError("end_block_id is not an ancestor of block_id")
+
+        return chain
+
+    def forward_operations_chain(self, operation_rev, block_id):
+        start_block_id = None
+        root_chain = self.backward_blocks_chain(block_id, self.ROOT)
+        for b_id in operation_rev.obj.containing_blocks:
+            if b_id in root_chain:
+                start_block_id = b_id
+                break
+
+        if start_block_id is None:
+            raise self.TreeError("operation_rev is not contained by any block being an ancestor of block_id")
+
+        lca_id = self.__lowest_common_ancestor(self.head, block_id)
+
+        op_chain = []
+
+        if root_chain.index(start_block_id) >= root_chain.index(lca_id):
+            # operation_rev is between ROOT and LCA blocks
+            ops = pmpi.operation.Operation.get(pmpi.identifier.Identifier.get(operation_rev.obj.uuid))\
+                .backward_operations_chain(operation_rev.id)
+            idx = 0
+            for b_id in self.backward_blocks_chain(self.head, lca_id)[:-1]:  # blocks from HEAD to LCA
+                while idx < len(ops) and b_id in pmpi.operation.Operation.get(ops[idx]).containing_blocks:
+                    idx += 1
+
+            op_chain = reversed(ops[idx:])
+
+        for b_id in root_chain[:root_chain.index(lca_id)]:
+            if len(op_chain) == 0:
+                if operation_rev.id in pmpi.block.Block.get(b_id).operations_ids:
+                    op_chain.append(operation_rev.id)
+
+            if len(op_chain) > 0:
+                op_dict = {op.previous_operation_rev.id: op.id for op in pmpi.block.Block.get(b_id).operations}
+                while op_chain[-1] in op_dict:
+                    op_chain.append(op_dict[op_chain[-1]])
+
+        return op_chain
+
     def __get_new_blocks(self):
         raise NotImplementedError
 
     def __set_head(self, new_head_id):
         raise NotImplementedError
 
-    def __lowest_common_ancestor(self, block_rev1, block_rev2):
-        records = [(bytes(rev), self.get(bytes(rev))) for rev in (block_rev1, block_rev2)]
+    def __lowest_common_ancestor(self, block_id1, block_id2):
+        records = [(b_id, self.get(b_id)) for b_id in (block_id1, block_id2)]
         if records[0][1].depth < records[1][1].depth:
             records.reverse()
         while records[0][1].depth > records[1][1].depth:
@@ -166,6 +221,9 @@ class BlockChain:
         return records[0][0]
 
     class BlockDuplicationError(Exception):
+        pass
+
+    class TreeError(Exception):
         pass
 
     # TODO delete this debug method:

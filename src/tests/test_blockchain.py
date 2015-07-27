@@ -35,9 +35,9 @@ class TestBlockChain(TestCase):
         sign_object(self.public_keys[0], self.private_keys[0], ops[1])
 
         ops.extend([
-            Operation(OperationRev.from_revision(ops[0]), self.uuids[0],
+            Operation(OperationRev.from_obj(ops[0]), self.uuids[0],
                       'http://example1.com/v2/', [self.public_keys[0]]),
-            Operation(OperationRev.from_revision(ops[1]), self.uuids[1],
+            Operation(OperationRev.from_obj(ops[1]), self.uuids[1],
                       'http://example2.com/v2/', [self.public_keys[1]])
         ])
 
@@ -45,7 +45,7 @@ class TestBlockChain(TestCase):
         sign_object(self.public_keys[1], self.private_keys[1], ops[3])
 
         ops.append(
-            Operation(OperationRev.from_revision(ops[3]), self.uuids[1],
+            Operation(OperationRev.from_obj(ops[3]), self.uuids[1],
                       'http://example2.com/v3/', [self.public_keys[1]])
         )
 
@@ -54,7 +54,7 @@ class TestBlockChain(TestCase):
         ops.extend([
             Operation(OperationRev(), self.uuids[2],
                       'http://example3.com/', [self.public_keys[1], self.public_keys[2]]),
-            Operation(OperationRev.from_revision(ops[2]), self.uuids[0],
+            Operation(OperationRev.from_obj(ops[2]), self.uuids[0],
                       'http://example1.com/v3/', [self.public_keys[0], self.public_keys[2]])
         ])
 
@@ -62,9 +62,9 @@ class TestBlockChain(TestCase):
         sign_object(self.public_keys[0], self.private_keys[0], ops[6])
 
         ops.extend([
-            Operation(OperationRev.from_revision(ops[5]), self.uuids[2],
+            Operation(OperationRev.from_obj(ops[5]), self.uuids[2],
                       'http://example3.com/v2/', [self.public_keys[2]]),
-            Operation(OperationRev.from_revision(ops[6]), self.uuids[0],
+            Operation(OperationRev.from_obj(ops[6]), self.uuids[0],
                       'http://example1.com/v4/', [self.public_keys[2]])
         ])
 
@@ -72,7 +72,7 @@ class TestBlockChain(TestCase):
         sign_object(self.public_keys[2], self.private_keys[2], ops[8])
 
         ops.append(
-            Operation(OperationRev.from_revision(ops[7]), self.uuids[2],
+            Operation(OperationRev.from_obj(ops[7]), self.uuids[2],
                       'http://example3.com/v3/', [self.public_keys[2]])
         )
 
@@ -85,22 +85,22 @@ class TestBlockChain(TestCase):
         blocks = [Block.from_operations_list(BlockRev(), start_time, [ops[0], ops[1]])]
         blocks[0].mine()
         sign_object(self.public_keys[0], self.private_keys[0], blocks[0])
-        blocks.append(Block.from_operations_list(BlockRev.from_revision(blocks[0]), start_time + 10, [ops[2], ops[6]]))
+        blocks.append(Block.from_operations_list(BlockRev.from_obj(blocks[0]), start_time + 10, [ops[2], ops[6]]))
         blocks[1].mine()
         sign_object(self.public_keys[0], self.private_keys[0], blocks[1])
-        blocks.append(Block.from_operations_list(BlockRev.from_revision(blocks[1]), start_time + 20, [ops[3], ops[5]]))
+        blocks.append(Block.from_operations_list(BlockRev.from_obj(blocks[1]), start_time + 20, [ops[3], ops[5]]))
         blocks[2].mine()
         sign_object(self.public_keys[0], self.private_keys[0], blocks[2])
-        blocks.append(Block.from_operations_list(BlockRev.from_revision(blocks[2]), start_time + 30, [ops[8], ops[4]]))
+        blocks.append(Block.from_operations_list(BlockRev.from_obj(blocks[2]), start_time + 30, [ops[8], ops[4]]))
         blocks[3].mine()
         sign_object(self.public_keys[0], self.private_keys[0], blocks[3])
-        blocks.append(Block.from_operations_list(BlockRev.from_revision(blocks[2]), start_time + 40, [ops[4], ops[7]]))
+        blocks.append(Block.from_operations_list(BlockRev.from_obj(blocks[2]), start_time + 40, [ops[4], ops[7]]))
         blocks[4].mine()
         sign_object(self.public_keys[0], self.private_keys[0], blocks[4])
-        blocks.append(Block.from_operations_list(BlockRev.from_revision(blocks[3]), start_time + 50, [ops[7], ops[9]]))
+        blocks.append(Block.from_operations_list(BlockRev.from_obj(blocks[3]), start_time + 50, [ops[7], ops[9]]))
         blocks[5].mine()
         sign_object(self.public_keys[0], self.private_keys[0], blocks[5])
-        blocks.append(Block.from_operations_list(BlockRev.from_revision(blocks[4]), start_time + 60, [ops[8], ops[9]]))
+        blocks.append(Block.from_operations_list(BlockRev.from_obj(blocks[4]), start_time + 60, [ops[8], ops[9]]))
         blocks[6].mine()
         sign_object(self.public_keys[0], self.private_keys[0], blocks[6])
 

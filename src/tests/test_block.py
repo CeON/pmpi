@@ -7,7 +7,8 @@ import time
 from ecdsa.keys import SigningKey
 
 from pmpi.block import BlockRev, Block
-from pmpi.core import initialise_database, close_database, Database
+from pmpi.core import close_database, initialise_database
+import pmpi.database
 from pmpi.exceptions import RawFormatError
 from pmpi.operation import Operation, OperationRev
 from pmpi.utils import sign_object, double_sha
@@ -89,13 +90,13 @@ class TestSingleBlock(TestCase):
         with self.assertRaisesRegex(Block.VerifyError, "wrong signature"):
             mangled_raw = bytearray(raw)
             mangled_raw[-1] = 0
-            Block.from_raw_with_operations(mangled_raw).verify_revision_id(self.block.id)
+            Block.from_raw_with_operations(mangled_raw).verify_id(self.block.id)
 
-        with self.assertRaisesRegex(Block.VerifyError, "wrong revision_id"):
-            Block.from_raw_with_operations(raw).verify_revision_id(b'wrong hash')
+        with self.assertRaisesRegex(Block.VerifyError, "wrong object id"):
+            Block.from_raw_with_operations(raw).verify_id(b'wrong hash')
 
-        with self.assertRaisesRegex(Block.VerifyError, "wrong revision_id"):
-            Block.from_raw_with_operations(raw).verify_revision_id(sha256(b'wrong hash'))
+        with self.assertRaisesRegex(Block.VerifyError, "wrong object id"):
+            Block.from_raw_with_operations(raw).verify_id(sha256(b'wrong hash'))
 
     def test_unsigned_operation(self):
         with self.assertRaisesRegex(Block.VerifyError, "at least one of the operations is not properly signed"):
@@ -152,10 +153,10 @@ class TestOperationsLimits(TestCase):
 
 class TestBlockNoDatabase(TestCase):
     def test_no_database(self):
-        with self.assertRaisesRegex(Database.InitialisationError, "initialise database first"):
-            Block.get_revision_id_list()
+        with self.assertRaisesRegex(pmpi.database.Database.InitialisationError, "initialise database first"):
+            Block.get_ids_list()
 
-        with self.assertRaisesRegex(Database.InitialisationError, "initialise database first"):
+        with self.assertRaisesRegex(pmpi.database.Database.InitialisationError, "initialise database first"):
             Block.get(sha256(b'something').digest())
 
         private_key = SigningKey.generate()
@@ -173,10 +174,10 @@ class TestBlockNoDatabase(TestCase):
         block.mine()
         sign_object(public_key, private_key, block)
 
-        with self.assertRaisesRegex(Database.InitialisationError, "initialise database first"):
+        with self.assertRaisesRegex(pmpi.database.Database.InitialisationError, "initialise database first"):
             block.put()
 
-        with self.assertRaisesRegex(Database.InitialisationError, "initialise database first"):
+        with self.assertRaisesRegex(pmpi.database.Database.InitialisationError, "initialise database first"):
             block.remove()
 
 
@@ -199,9 +200,9 @@ class TestBlockDatabase(TestCase):
             sign_object(self.public_key, self.private_key, op)
 
         self.operations.append([
-            Operation(OperationRev.from_revision(self.operations[0][0]),
+            Operation(OperationRev.from_obj(self.operations[0][0]),
                       self.uuids[0], 'http://example0.com/v1/', [self.public_key]),
-            Operation(OperationRev.from_revision(self.operations[0][1]),
+            Operation(OperationRev.from_obj(self.operations[0][1]),
                       self.uuids[1], 'http://example1.com/v1/', [self.public_key]),
             Operation(OperationRev(),
                       self.uuids[2], 'http://example2.com/v0/', [self.public_key])
@@ -211,9 +212,9 @@ class TestBlockDatabase(TestCase):
             sign_object(self.public_key, self.private_key, op)
 
         self.operations.append([
-            Operation(OperationRev.from_revision(self.operations[1][0]),
+            Operation(OperationRev.from_obj(self.operations[1][0]),
                       self.uuids[0], 'http://example0.com/v2/', [self.public_key]),
-            Operation(OperationRev.from_revision(self.operations[1][1]),
+            Operation(OperationRev.from_obj(self.operations[1][1]),
                       self.uuids[1], 'http://example1.com/v2/', [self.public_key])
         ])
 
@@ -221,9 +222,9 @@ class TestBlockDatabase(TestCase):
             sign_object(self.public_key, self.private_key, op)
 
         self.operations.append([
-            Operation(OperationRev.from_revision(self.operations[1][1]),
+            Operation(OperationRev.from_obj(self.operations[1][1]),
                       self.uuids[1], 'http://alternative1.com/', [self.public_key]),
-            Operation(OperationRev.from_revision(self.operations[1][2]),
+            Operation(OperationRev.from_obj(self.operations[1][2]),
                       self.uuids[2], 'http://alternative2.com/', [self.public_key])
         ])
 
@@ -236,20 +237,20 @@ class TestBlockDatabase(TestCase):
         self.blocks[0].mine()
         sign_object(self.public_key, self.private_key, self.blocks[0])
         self.blocks.append(
-            Block.from_operations_list(BlockRev.from_revision(self.blocks[0]), timestamp + 20, self.operations[1]))
+            Block.from_operations_list(BlockRev.from_obj(self.blocks[0]), timestamp + 20, self.operations[1]))
         self.blocks[1].mine()
         sign_object(self.public_key, self.private_key, self.blocks[1])
         self.blocks.append(
-            Block.from_operations_list(BlockRev.from_revision(self.blocks[1]), timestamp + 40, self.operations[2]))
+            Block.from_operations_list(BlockRev.from_obj(self.blocks[1]), timestamp + 40, self.operations[2]))
         self.blocks[2].mine()
         sign_object(self.public_key, self.private_key, self.blocks[2])
         self.blocks.append(
-            Block.from_operations_list(BlockRev.from_revision(self.blocks[1]), timestamp + 60, self.operations[3]))
+            Block.from_operations_list(BlockRev.from_obj(self.blocks[1]), timestamp + 60, self.operations[3]))
         self.blocks[3].mine()
         sign_object(self.public_key, self.private_key, self.blocks[3])
 
     def test_0_empty(self):
-        self.assertEqual(len(Block.get_revision_id_list()), 0)
+        self.assertEqual(len(Block.get_ids_list()), 0)
 
     def test_1_get_from_empty(self):
         with self.assertRaises(Block.DoesNotExist):
@@ -263,13 +264,13 @@ class TestBlockDatabase(TestCase):
 
         self.blocks[1].put()
 
-        with self.assertRaisesRegex(Block.DuplicationError, "revision_id already in the database"):
+        with self.assertRaisesRegex(Block.DuplicationError, "object id already in the database"):
             self.blocks[1].put()
 
         self.blocks[2].put()
         self.blocks[3].put()
 
-        revision_id_list = Block.get_revision_id_list()
+        revision_id_list = Block.get_ids_list()
 
         self.assertEqual(len(revision_id_list), 4)
         self.assertCountEqual(revision_id_list, [block.id for block in self.blocks])
@@ -286,7 +287,7 @@ class TestBlockDatabase(TestCase):
             with self.assertRaisesRegex(Block.ChainOperationBlockedError, "can't remove: blocked by another block"):
                 block.remove()
 
-        self.assertCountEqual(Block.get_revision_id_list(), [block.id for block in self.blocks])
+        self.assertCountEqual(Block.get_ids_list(), [block.id for block in self.blocks])
 
         self.blocks[2].remove()
 
@@ -296,7 +297,7 @@ class TestBlockDatabase(TestCase):
 
         self.blocks[3].remove()
 
-        self.assertCountEqual(Block.get_revision_id_list(), [block.id for block in self.blocks[:2]])
+        self.assertCountEqual(Block.get_ids_list(), [block.id for block in self.blocks[:2]])
 
         with self.assertRaisesRegex(Block.ChainOperationBlockedError, "can't remove: blocked by another block"):
             self.blocks[0].remove()
@@ -308,14 +309,14 @@ class TestBlockDatabase(TestCase):
             with self.assertRaises(Block.DoesNotExist):
                 block.remove()
 
-        self.assertEqual(Block.get_revision_id_list(), [])
+        self.assertEqual(Block.get_ids_list(), [])
 
     def test_4_wrong_previous_block(self):
         self.blocks[0].previous_block_rev = BlockRev.from_id(double_sha(b'something'))
         self.blocks[0].mine()
         sign_object(self.public_key, self.private_key, self.blocks[0])
 
-        with self.assertRaisesRegex(Block.ChainError, "previous_revision_id does not exist"):
+        with self.assertRaisesRegex(Block.ChainError, "previous_block_rev does not exist"):
             self.blocks[0].verify()
 
     def tearDown(self):

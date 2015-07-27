@@ -1,5 +1,6 @@
 from io import BytesIO
 from uuid import UUID, uuid5
+import pmpi.database
 from pmpi.exceptions import RawFormatError
 from pmpi.utils import read_bytes, read_uint32, read_string, read_sized_bytes
 from pmpi.public_key import PublicKey
@@ -10,7 +11,7 @@ import pmpi.core
 
 
 class OperationRev(pmpi.abstract.AbstractRevision):
-    def _get_revision_from_database(self):
+    def _get_obj_from_database(self):
         return Operation.get(self.id)
 
 
@@ -101,6 +102,26 @@ class Operation(pmpi.abstract.AbstractSignedObject):
     def generate_uuid(self):
         return uuid5(self.PMPI_UUID, self.address + ''.join(self.owners_der))
 
+    def backward_operations_chain(self, end_operation_id=OperationRev().id):
+        root = OperationRev().id
+        op = self
+        chain = [op.id]
+        while op.id != root and op.id != end_operation_id:
+            prev_op_rev = op.previous_operation_rev
+            op = prev_op_rev.obj
+            chain.append(op.id)
+
+        if op.id != end_operation_id:
+            raise self.ChainError("end_operation_id is not an ancestor of this operation")
+
+        return chain
+
+    def forward_operations_chain(self, block_id):
+        return pmpi.core.get_database().blockchain.forward_operations_chain(self.get_rev(), block_id)
+
+    def get_rev(self):
+        return OperationRev.from_obj(self)
+
     # Serialization and deserialization
 
     def unsigned_raw(self):
@@ -181,13 +202,13 @@ class Operation(pmpi.abstract.AbstractSignedObject):
                 #     raise self.UUIDError("UUID does not fulfill requirements")
 
         except self.DoesNotExist:
-            raise self.ChainError("previous_revision_id does not exist")
+            raise self.ChainError("previous_operation_rev does not exist")
 
         return True
 
     def put_verify(self):
         if self.previous_operation_rev.is_none():  # it's a minting operation
-            for rev in Operation.get_revision_id_list():
+            for rev in Operation.get_ids_list():
                 if rev != self.id and Operation.get(rev).uuid == self.uuid:
                     raise self.ChainError("trying to create a minting operation for an existing uuid")
 
@@ -199,7 +220,7 @@ class Operation(pmpi.abstract.AbstractSignedObject):
 
     @classmethod
     def _get_dbname(cls):
-        return pmpi.core.Database.OPERATIONS
+        return pmpi.database.Database.OPERATIONS
 
     def is_in_database(self):
         if super(Operation, self).is_in_database():
@@ -212,8 +233,10 @@ class Operation(pmpi.abstract.AbstractSignedObject):
         """
         Put the operation as contained by a given block_rev.
         """
+        print("Putting operation. cntblcks={}, block_rev.id={}".format(self.containing_blocks, block_rev.id))
         self.__add_containing_block(block_rev)
-        super(Operation, self).put()
+        print("... cntblk={}".format(self.containing_blocks))
+        super(Operation, self).put()  # TODO what if it will throw an exception?
 
     def remove(self, block_rev):
         # When the containing_blocks tuple is cleared, we can remove operation. We don't need to check if there are any

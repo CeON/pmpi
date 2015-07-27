@@ -1,7 +1,7 @@
 from ecdsa import BadSignatureError
-from pmpi.core import database_required
 from pmpi.exceptions import ObjectDoesNotExist
 from pmpi.utils import double_sha
+import pmpi.core
 
 
 class AbstractRevision:
@@ -15,7 +15,7 @@ class AbstractRevision:
         return rev
 
     @classmethod
-    def from_revision(cls, obj):
+    def from_obj(cls, obj):
         """
         :type obj: AbstractSignedObject
         """
@@ -24,13 +24,10 @@ class AbstractRevision:
         rev.__obj = obj
         return rev
 
-    # def __bytes__(self):
-    #     return self._id if self._id is not None else bytes(32)
-
     def __eq__(self, other):
         return self.id == other.id
 
-    def _get_revision_from_database(self):
+    def _get_obj_from_database(self):
         raise NotImplementedError
 
     @property
@@ -40,7 +37,7 @@ class AbstractRevision:
     @property
     def obj(self):
         if self.__id is not None and self.__obj is None:
-            self.__obj = self._get_revision_from_database()
+            self.__obj = self._get_obj_from_database()
 
         return self.__obj
 
@@ -76,6 +73,9 @@ class AbstractSignedObject:
         if self.requires_signature_verification or self.__id is None:
             self.__id = double_sha(self.raw())
         return self.__id
+
+    def get_rev(self):
+        raise NotImplementedError
 
     def sign(self, public_key, signature):
         self.__public_key = public_key
@@ -125,9 +125,9 @@ class AbstractSignedObject:
             else:
                 raise self.VerifyError("object is not signed")
 
-    def verify_revision_id(self, revision_id):
-        if revision_id != self.id:
-            raise self.VerifyError("wrong revision_id")
+    def verify_id(self, obj_id):
+        if obj_id != self.id:
+            raise self.VerifyError("wrong object id")
 
     def verify(self):
         raise NotImplementedError
@@ -145,24 +145,24 @@ class AbstractSignedObject:
         raise NotImplementedError
 
     @classmethod
-    @database_required
-    def get_revision_id_list(cls, database):
+    @pmpi.core.with_database
+    def get_ids_list(cls, database):
         return database.keys(cls._get_dbname())
 
     @classmethod
-    @database_required
-    def exist(cls, database, revision_id):
+    @pmpi.core.with_database
+    def exist(cls, database, obj_id):
         try:
-            database.get(cls._get_dbname(), revision_id)
+            database.get(cls._get_dbname(), obj_id)
             return True
         except KeyError:
             return False
 
     @classmethod
-    @database_required
-    def get(cls, database, revision_id):
+    @pmpi.core.with_database
+    def get(cls, database, obj_id):
         try:
-            obj = cls._from_database_raw(database.get(cls._get_dbname(), revision_id))
+            obj = cls._from_database_raw(database.get(cls._get_dbname(), obj_id))
             return obj
         except KeyError:
             raise cls.DoesNotExist
@@ -174,19 +174,19 @@ class AbstractSignedObject:
         except self.DoesNotExist:
             return False
 
-    @database_required
+    @pmpi.core.with_database
     def put(self, database):
         self.verify()
         self.put_verify()
 
-        revision_id = self.id
+        obj_id = self.id
 
         if not self.is_in_database():
-            database.put(self._get_dbname(), revision_id, self._database_raw())
+            database.put(self._get_dbname(), obj_id, self._database_raw())
         else:
-            raise self.DuplicationError("revision_id already in the database")
+            raise self.DuplicationError("object id already in the database")
 
-    @database_required
+    @pmpi.core.with_database
     def remove(self, database):
         self.remove_verify()
 

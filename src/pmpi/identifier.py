@@ -1,8 +1,8 @@
 from uuid import UUID
-
-from pmpi.core import Database, database_required
+from pmpi.core import with_database
 from pmpi.exceptions import ObjectDoesNotExist
-from pmpi.operation import OperationRev
+import pmpi.database
+import pmpi.operation
 
 
 class Identifier:
@@ -23,7 +23,7 @@ class Identifier:
 
     @classmethod
     def from_operation(cls, operation):
-        return cls(operation.uuid, OperationRev.from_revision(operation))
+        return cls(operation.uuid, pmpi.operation.OperationRev.from_obj(operation))
 
     def verify(self):
         if self.uuid != self.operation_rev.obj.uuid:
@@ -32,16 +32,16 @@ class Identifier:
     # Database operations
 
     @classmethod
-    @database_required
+    @with_database
     def get_uuid_list(cls, database):
         """
         :param database: provided by database_required decorator
         :return: List of UUIDs stored in the database
         """
-        return [UUID(bytes=uuid) for uuid in database.keys(Database.IDENTIFIERS)]
+        return [UUID(bytes=uuid) for uuid in database.keys(pmpi.database.Database.IDENTIFIERS)]
 
     @classmethod
-    @database_required
+    @with_database
     def get(cls, database, uuid):
         """
         :type uuid: UUID
@@ -50,20 +50,21 @@ class Identifier:
         :raise cls.DoesNotExist:
         """
         try:
-            return Identifier(uuid, OperationRev.from_id(database.get(Database.IDENTIFIERS, uuid.bytes)))
+            return Identifier(uuid, pmpi.operation.OperationRev.from_id(
+                database.get(pmpi.database.Database.IDENTIFIERS, uuid.bytes)))
         except KeyError:
             raise cls.DoesNotExist
 
-    @database_required
+    @with_database
     def put(self, database):
         """
         Put the identifier into the database.
 
         :param database: provided by database_required decorator
         """
-        database.put(Database.IDENTIFIERS, self.uuid.bytes, self.operation_rev.id)
+        database.put(pmpi.database.Database.IDENTIFIERS, self.uuid.bytes, self.operation_rev.id)
 
-    @database_required
+    @pmpi.core.with_database
     def remove(self, database):
         """
         Remove the identifier from the database.
@@ -72,7 +73,7 @@ class Identifier:
         :raise self.DoesNotExist: when the identifier is not in the database
         """
         try:
-            database.delete(Database.IDENTIFIERS, self.uuid.bytes)
+            database.delete(pmpi.database.Database.IDENTIFIERS, self.uuid.bytes)
         except ObjectDoesNotExist:
             raise self.DoesNotExist
 

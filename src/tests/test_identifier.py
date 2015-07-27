@@ -3,9 +3,10 @@ from unittest import TestCase
 from uuid import uuid4
 from ecdsa.keys import SigningKey
 from pmpi.block import Block, BlockRev
+import pmpi.database
 
 from pmpi.identifier import Identifier
-from pmpi.core import Database, initialise_database, close_database
+from pmpi.core import initialise_database, close_database
 from pmpi.operation import OperationRev, Operation
 from pmpi.utils import sign_object
 from pmpi.public_key import PublicKey
@@ -22,7 +23,7 @@ class TestIdentifier(TestCase):
 
     def test_fields(self):
         self.assertEqual(self.identifier.uuid, self.uuid)
-        self.assertEqual(self.identifier.operation_rev, OperationRev.from_revision(self.operation))
+        self.assertEqual(self.identifier.operation_rev, OperationRev.from_obj(self.operation))
 
     def test_operation_rev(self):
         self.assertIsInstance(self.identifier.operation_rev, OperationRev)
@@ -36,10 +37,10 @@ class TestIdentifier(TestCase):
 
 class TestNoDatabase(TestCase):
     def test_no_database(self):
-        with self.assertRaisesRegex(Database.InitialisationError, "initialise database first"):
+        with self.assertRaisesRegex(pmpi.database.Database.InitialisationError, "initialise database first"):
             Identifier.get_uuid_list()
 
-        with self.assertRaisesRegex(Database.InitialisationError, "initialise database first"):
+        with self.assertRaisesRegex(pmpi.database.Database.InitialisationError, "initialise database first"):
             Identifier.get(uuid4())
 
         operation = Operation(OperationRev(), uuid4(), 'http://example.com/', [])
@@ -47,10 +48,10 @@ class TestNoDatabase(TestCase):
         sign_object(PublicKey.from_signing_key(sk), sk, operation)
         identifier = Identifier.from_operation(operation)
 
-        with self.assertRaisesRegex(Database.InitialisationError, "initialise database first"):
+        with self.assertRaisesRegex(pmpi.database.Database.InitialisationError, "initialise database first"):
             identifier.put()
 
-        with self.assertRaisesRegex(Database.InitialisationError, "initialise database first"):
+        with self.assertRaisesRegex(pmpi.database.Database.InitialisationError, "initialise database first"):
             identifier.remove()
 
 

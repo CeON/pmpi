@@ -1,17 +1,18 @@
 import os
 from unittest.case import TestCase
 from pmpi.abstract import AbstractRevision
-from pmpi.core import Database, initialise_database, close_database
+from pmpi.core import initialise_database, close_database
+import pmpi.database
 
 
 class TestDatabase(TestCase):
     def setUp(self):
-        self.db = Database('test_database_file')
+        self.db = pmpi.database.Database('test_database_file')
 
     def test_create(self):
-        self.assertIsInstance(self.db, Database)
+        self.assertIsInstance(self.db, pmpi.database.Database)
 
-        for dbname in Database.DBNAMES:
+        for dbname in pmpi.database.Database.DBNAMES:
             self.assertEqual(self.db.length(dbname), 0)
 
     def tearDown(self):
@@ -22,7 +23,7 @@ class TestInitialiseDatabase(TestCase):
     def test_initialise(self):
         initialise_database('test_database_file')
 
-        with self.assertRaisesRegex(Database.InitialisationError, "close opened database first"):
+        with self.assertRaisesRegex(pmpi.database.Database.InitialisationError, "close opened database first"):
             initialise_database('test_database_file2')
 
         with self.assertRaises(OSError):
@@ -32,7 +33,7 @@ class TestInitialiseDatabase(TestCase):
         initialise_database('test_database_file2')
         close_database()
 
-        with self.assertRaisesRegex(Database.InitialisationError, "there is no database to close"):
+        with self.assertRaisesRegex(pmpi.database.Database.InitialisationError, "there is no database to close"):
             close_database()
 
         os.remove('test_database_file')
@@ -42,4 +43,4 @@ class TestInitialiseDatabase(TestCase):
 class TestAbstractRevision(TestCase):
     def test_not_implemented(self):
         with self.assertRaises(NotImplementedError):
-            AbstractRevision()._get_revision_from_database()
+            AbstractRevision()._get_obj_from_database()

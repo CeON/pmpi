@@ -9,7 +9,8 @@ from ecdsa.curves import NIST256p
 from ecdsa.keys import SigningKey
 
 from pmpi.block import BlockRev
-from pmpi.core import initialise_database, close_database, Database
+from pmpi.core import initialise_database, close_database
+import pmpi.database
 from pmpi.exceptions import RawFormatError
 from pmpi.operation import Operation, OperationRev
 from pmpi.utils import sign_object
@@ -88,11 +89,11 @@ class TestSingleOperation(TestCase):
             mangled_raw[-1] = 0
             Operation.from_raw(mangled_raw).verify()
 
-        with self.assertRaisesRegex(Operation.VerifyError, "wrong revision_id"):
-            Operation.from_raw(raw).verify_revision_id(b'wrong hash')  # wrong hash length
+        with self.assertRaisesRegex(Operation.VerifyError, "wrong object id"):
+            Operation.from_raw(raw).verify_id(b'wrong hash')  # wrong hash length
 
-        with self.assertRaisesRegex(Operation.VerifyError, "wrong revision_id"):
-            Operation.from_raw(raw).verify_revision_id(sha256(b'wrong hash').digest())  # different hash
+        with self.assertRaisesRegex(Operation.VerifyError, "wrong object id"):
+            Operation.from_raw(raw).verify_id(sha256(b'wrong hash').digest())  # different hash
 
     def test_owners(self):
         self.operation = Operation(self.operation.previous_operation_rev,
@@ -140,14 +141,14 @@ class TestMultipleOperations(TestCase):
 
     def test_1_operation(self):
         sign_object(self.public_keys[0], self.private_keys[0], self.operation[0])
-        self.operation[1] = Operation(OperationRev.from_revision(self.operation[0]), self.operation[0].uuid,
+        self.operation[1] = Operation(OperationRev.from_obj(self.operation[0]), self.operation[0].uuid,
                                       'http://illegal.example.com/', [self.public_keys[2]])
 
         with self.assertRaises(Operation.OwnershipError):
             sign_object(self.public_keys[0], self.private_keys[0], self.operation[1])
             self.operation[1].verify()
 
-        self.operation[1] = Operation(OperationRev.from_revision(self.operation[0]), self.operation[0].uuid,
+        self.operation[1] = Operation(OperationRev.from_obj(self.operation[0]), self.operation[0].uuid,
                                       'http://new.example.com/', [self.public_keys[2]])
         sign_object(self.public_keys[2], self.private_keys[2], self.operation[1])
 
@@ -155,17 +156,17 @@ class TestMultipleOperations(TestCase):
 
     def test_2_operation(self):
         sign_object(self.public_keys[1], self.private_keys[1], self.operation[0])
-        self.operation[1] = Operation(OperationRev.from_revision(self.operation[0]), self.operation[0].uuid,
+        self.operation[1] = Operation(OperationRev.from_obj(self.operation[0]), self.operation[0].uuid,
                                       'http://new.example.com/', [self.public_keys[2]])
         sign_object(self.public_keys[2], self.private_keys[2], self.operation[1])
-        self.operation[2] = Operation(OperationRev.from_revision(self.operation[1]), uuid4(),
+        self.operation[2] = Operation(OperationRev.from_obj(self.operation[1]), uuid4(),
                                       'http://new2.example.com', [])
 
         with self.assertRaisesRegex(Operation.VerifyError, "uuid mismatch"):
             sign_object(self.public_keys[2], self.private_keys[2], self.operation[2])
             self.operation[2].verify()
 
-        self.operation[2] = Operation(OperationRev.from_revision(self.operation[1]), self.operation[0].uuid,
+        self.operation[2] = Operation(OperationRev.from_obj(self.operation[1]), self.operation[0].uuid,
                                       'http://new2.example.com', [])
         sign_object(self.public_keys[2], self.private_keys[2], self.operation[2])
         self.operation[2].verify()
@@ -190,7 +191,7 @@ class TestOperationDatabase(TestCase):
         ]
 
     def test_0_empty(self):
-        self.assertEqual(len(Operation.get_revision_id_list()), 0)
+        self.assertEqual(len(Operation.get_ids_list()), 0)
 
     def test_1_get_from_empty(self):
         with self.assertRaises(Operation.DoesNotExist):
@@ -202,10 +203,10 @@ class TestOperationDatabase(TestCase):
         sign_object(self.public_key, self.private_key, self.operations[0])
         self.operations[0].put()
 
-        with self.assertRaisesRegex(Operation.DuplicationError, "revision_id already in the database"):
+        with self.assertRaisesRegex(Operation.DuplicationError, "object id already in the database"):
             self.operations[0].put()
 
-        self.operations[1] = Operation(OperationRev.from_revision(self.operations[0]),
+        self.operations[1] = Operation(OperationRev.from_obj(self.operations[0]),
                                        self.operations[1].uuid,
                                        self.operations[1].address,
                                        self.operations[1].owners)
@@ -216,7 +217,7 @@ class TestOperationDatabase(TestCase):
         sign_object(self.public_key, self.private_key, self.operations[2])
         self.operations[2].put()
 
-        revision_id_list = Operation.get_revision_id_list()
+        revision_id_list = Operation.get_ids_list()
 
         self.assertEqual(len(revision_id_list), 3)
         self.assertCountEqual(revision_id_list, [op.id for op in self.operations])
@@ -224,7 +225,7 @@ class TestOperationDatabase(TestCase):
     def test_3_get_and_remove(self):
         sign_object(self.public_key, self.private_key, self.operations[0])
 
-        self.operations[1] = Operation(OperationRev.from_revision(self.operations[0]),
+        self.operations[1] = Operation(OperationRev.from_obj(self.operations[0]),
                                        self.operations[1].uuid,
                                        self.operations[1].address,
                                        self.operations[1].owners)
@@ -237,12 +238,12 @@ class TestOperationDatabase(TestCase):
             new_op = Operation.get(op.id)
             self.assertEqual(new_op.id, op.id)
 
-        self.assertCountEqual(Operation.get_revision_id_list(), [op.id for op in self.operations])
+        self.assertCountEqual(Operation.get_ids_list(), [op.id for op in self.operations])
 
         self.operations[1].remove()
         self.operations[0].remove()
 
-        self.assertCountEqual(Operation.get_revision_id_list(), [self.operations[2].id])
+        self.assertCountEqual(Operation.get_ids_list(), [self.operations[2].id])
 
         self.operations[2].remove()
 
@@ -250,7 +251,7 @@ class TestOperationDatabase(TestCase):
             with self.assertRaises(Operation.DoesNotExist):
                 op.remove()
 
-        self.assertEqual(Operation.get_revision_id_list(), [])
+        self.assertEqual(Operation.get_ids_list(), [])
 
     def tearDown(self):
         close_database()
@@ -259,20 +260,20 @@ class TestOperationDatabase(TestCase):
 
 class TestNoDatabase(TestCase):
     def test_no_database(self):
-        with self.assertRaisesRegex(Database.InitialisationError, "initialise database first"):
-            Operation.get_revision_id_list()
+        with self.assertRaisesRegex(pmpi.database.Database.InitialisationError, "initialise database first"):
+            Operation.get_ids_list()
 
-        with self.assertRaisesRegex(Database.InitialisationError, "initialise database first"):
+        with self.assertRaisesRegex(pmpi.database.Database.InitialisationError, "initialise database first"):
             Operation.get(sha256(b'something').digest())
 
         operation = Operation(OperationRev(), uuid4(), 'http://example.com/', [])
         sk = SigningKey.generate()
         sign_object(PublicKey.from_signing_key(sk), sk, operation)
 
-        with self.assertRaisesRegex(Database.InitialisationError, "initialise database first"):
+        with self.assertRaisesRegex(pmpi.database.Database.InitialisationError, "initialise database first"):
             operation.put(BlockRev())
 
-        with self.assertRaisesRegex(Database.InitialisationError, "initialise database first"):
+        with self.assertRaisesRegex(pmpi.database.Database.InitialisationError, "initialise database first"):
             operation.remove(BlockRev())
 
 
@@ -310,7 +311,7 @@ class TestOperationVerify(TestCase):
         with self.assertRaisesRegex(Operation.ChainError, "trying to create a minting operation for an existing uuid"):
             self.operation[1].put()
 
-        self.operation[1] = Operation(OperationRev.from_revision(self.operation[0]),
+        self.operation[1] = Operation(OperationRev.from_obj(self.operation[0]),
                                       self.operation[1].uuid,
                                       self.operation[1].address,
                                       self.operation[1].owners)
@@ -332,12 +333,12 @@ class TestOperationVerify(TestCase):
 
         sign_object(self.public_keys[1], self.private_keys[1], self.operation[2])
 
-        with self.assertRaisesRegex(Operation.ChainError, "previous_revision_id does not exist"):
+        with self.assertRaisesRegex(Operation.ChainError, "previous_operation_rev does not exist"):
             self.operation[2].put()
 
         sign_object(self.public_keys[0], self.private_keys[0], self.operation[1])
 
-        self.operation[2] = Operation(OperationRev.from_revision(self.operation[1]),
+        self.operation[2] = Operation(OperationRev.from_obj(self.operation[1]),
                                       self.operation[2].uuid,
                                       self.operation[2].address,
                                       self.operation[2].owners)
@@ -355,7 +356,7 @@ class TestOperationVerify(TestCase):
         sign_object(self.public_keys[1], self.private_keys[1], self.operation[2])
         self.operation[2].put()
 
-        with self.assertRaisesRegex(Operation.DuplicationError, "revision_id already in the database"):
+        with self.assertRaisesRegex(Operation.DuplicationError, "object id already in the database"):
             self.operation[2].put()
 
     def tearDown(self):

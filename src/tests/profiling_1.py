@@ -32,9 +32,9 @@ def test():
         sign_object(obj_public_key, obj_private_key, op)
 
     obj_operations.append([
-        Operation(OperationRev.from_revision(obj_operations[0][0]),
+        Operation(OperationRev.from_obj(obj_operations[0][0]),
                   obj_uuids[0], 'http://example0.com/v1/', [obj_public_key]),
-        Operation(OperationRev.from_revision(obj_operations[0][1]),
+        Operation(OperationRev.from_obj(obj_operations[0][1]),
                   obj_uuids[1], 'http://example1.com/v1/', [obj_public_key]),
         Operation(OperationRev(),
                   obj_uuids[2], 'http://example2.com/v0/', [obj_public_key])
@@ -44,9 +44,9 @@ def test():
         sign_object(obj_public_key, obj_private_key, op)
 
     obj_operations.append([
-        Operation(OperationRev.from_revision(obj_operations[1][0]),
+        Operation(OperationRev.from_obj(obj_operations[1][0]),
                   obj_uuids[0], 'http://example0.com/v2/', [obj_public_key]),
-        Operation(OperationRev.from_revision(obj_operations[1][1]),
+        Operation(OperationRev.from_obj(obj_operations[1][1]),
                   obj_uuids[1], 'http://example1.com/v2/', [obj_public_key])
     ])
 
@@ -54,9 +54,9 @@ def test():
         sign_object(obj_public_key, obj_private_key, op)
 
     obj_operations.append([
-        Operation(OperationRev.from_revision(obj_operations[1][1]),
+        Operation(OperationRev.from_obj(obj_operations[1][1]),
                   obj_uuids[1], 'http://alternative1.com/', [obj_public_key]),
-        Operation(OperationRev.from_revision(obj_operations[1][2]),
+        Operation(OperationRev.from_obj(obj_operations[1][2]),
                   obj_uuids[2], 'http://alternative2.com/', [obj_public_key])
     ])
 
@@ -69,15 +69,15 @@ def test():
     obj_blocks[0].mine()
     sign_object(obj_public_key, obj_private_key, obj_blocks[0])
     obj_blocks.append(
-        Block.from_operations_list(BlockRev.from_revision(obj_blocks[0]), timestamp + 20, obj_operations[1]))
+        Block.from_operations_list(BlockRev.from_obj(obj_blocks[0]), timestamp + 20, obj_operations[1]))
     obj_blocks[1].mine()
     sign_object(obj_public_key, obj_private_key, obj_blocks[1])
     obj_blocks.append(
-        Block.from_operations_list(BlockRev.from_revision(obj_blocks[1]), timestamp + 40, obj_operations[2]))
+        Block.from_operations_list(BlockRev.from_obj(obj_blocks[1]), timestamp + 40, obj_operations[2]))
     obj_blocks[2].mine()
     sign_object(obj_public_key, obj_private_key, obj_blocks[2])
     obj_blocks.append(
-        Block.from_operations_list(BlockRev.from_revision(obj_blocks[1]), timestamp + 60, obj_operations[3]))
+        Block.from_operations_list(BlockRev.from_obj(obj_blocks[1]), timestamp + 60, obj_operations[3]))
     obj_blocks[3].mine()
     sign_object(obj_public_key, obj_private_key, obj_blocks[3])
 
@@ -95,7 +95,7 @@ def test():
         except Block.ChainOperationBlockedError:
             pass
 
-    assert sorted(Block.get_revision_id_list()) == sorted([block.id for block in obj_blocks])
+    assert sorted(Block.get_ids_list()) == sorted([block.id for block in obj_blocks])
 
     obj_blocks[2].remove()
 
@@ -124,7 +124,7 @@ def test():
         except Block.DoesNotExist:
             pass
 
-    assert Block.get_revision_id_list() == []
+    assert Block.get_ids_list() == []
 
     close_database()
     os.remove('test_database_file')

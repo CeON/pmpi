@@ -1,15 +1,19 @@
 from io import BytesIO
+
+import pmpi.database
 from pmpi.exceptions import RawFormatError
-from pmpi.operation import Operation
+
+# from pmpi.operation import Operation
 from pmpi.utils import double_sha, read_bytes, read_uint32, read_sized_bytes
 from pmpi.public_key import PublicKey
 
 import pmpi.abstract
 import pmpi.core
+import pmpi.operation
 
 
 class BlockRev(pmpi.abstract.AbstractRevision):
-    def _get_revision_from_database(self):
+    def _get_obj_from_database(self):
         return Block.get(self.id)
 
 
@@ -59,7 +63,7 @@ class Block(pmpi.abstract.AbstractSignedObject):
             block = cls(previous_block_rev, timestamp, [op.id for op in operations])
             block.__operations = tuple(operations)
             return block
-        except Operation.VerifyError:
+        except pmpi.operation.Operation.VerifyError:
             raise cls.VerifyError("at least one of the operations is not properly signed")
 
     # Getters and setters
@@ -86,6 +90,9 @@ class Block(pmpi.abstract.AbstractSignedObject):
     @property
     def requires_signature_verification(self):
         return (not self.is_checksum_correct()) or super(Block, self).requires_signature_verification
+
+    def get_rev(self):
+        return BlockRev.from_obj(self)
 
     # Serialization and deserialization
 
@@ -169,7 +176,7 @@ class Block(pmpi.abstract.AbstractSignedObject):
     @classmethod
     def from_raw_with_operations(cls, raw):
         buffer = BytesIO(raw)
-        operations = [Operation.from_raw(read_sized_bytes(buffer)) for _ in range(read_uint32(buffer))]
+        operations = [pmpi.operation.Operation.from_raw(read_sized_bytes(buffer)) for _ in range(read_uint32(buffer))]
 
         return cls.__from_raw_and_operations(buffer.read(), operations)
 
@@ -178,8 +185,8 @@ class Block(pmpi.abstract.AbstractSignedObject):
     def _update_operations(self):
         try:
             if self.operations_ids != tuple(op.id for op in self.__operations):
-                self.__operations = tuple(Operation.get(h) for h in self.operations_ids)
-        except Operation.VerifyError:
+                self.__operations = tuple(pmpi.operation.Operation.get(h) for h in self.operations_ids)
+        except pmpi.operation.Operation.VerifyError:
             raise self.VerifyError("at least one of the operations is not properly signed")
 
     def verify(self):
@@ -197,11 +204,18 @@ class Block(pmpi.abstract.AbstractSignedObject):
         try:
             prev_block = self.previous_block_rev.obj
             if prev_block is not None:
-                pass  # TODO check integrity of operation chains.
-                # TODO also: should it check if the previous block is in the database?
-                # TODO [or should it be moved to put_verify?]
+                for op in self.operations:
+                    if not op.previous_operation_rev.is_none() \
+                            and op.previous_operation_rev.id not in operations_counter:
+                        if op.previous_operation_rev.obj.forward_operations_chain(self.previous_block_rev.id) \
+                                != [op.previous_operation_rev.id]:
+                            raise self.ChainError("operation's previous_operation_rev is not pointing at the last "
+                                                  "operation on current blockchain")
+                            # TODO also: should it check if the previous block is in the database?
+                            # TODO [or should it be moved to put_verify?]
+
         except self.DoesNotExist:
-            raise self.ChainError("previous_revision_id does not exist")
+            raise self.ChainError("previous_block_rev does not exist")
 
         if not self.MIN_OPERATIONS <= self.operations_limit <= self.MAX_OPERATIONS:
             raise self.VerifyError("operations_limit out of range")
@@ -209,20 +223,18 @@ class Block(pmpi.abstract.AbstractSignedObject):
         if not self.MIN_OPERATIONS <= len(self.operations) <= self.operations_limit:
             raise self.VerifyError("number of operations doesn't satisfy limitations")
 
-        # TODO check: difficulty is correctly set -- check block depth and self.difficulty <= DIFF_AT_DEPTH(depth)
+        # TODO check: difficulty is correctly set -- i.e. check block depth and self.difficulty <= DIFF_AT_DEPTH(depth)
 
         return True
 
-    @pmpi.core.database_required
-    def put_verify(self, database):
+    def put_verify(self):
         prev_block = self.previous_block_rev.obj
         if prev_block is None:
-            if len(database.blockchain.get(BlockRev().id).next_ids) > 0:
+            if len(pmpi.core.get_database().blockchain.get(BlockRev().id).next_ids) > 0:
                 raise Block.GenesisBlockDuplication("trying to create multiple genesis blocks")
 
-    @pmpi.core.database_required
-    def remove_verify(self, database):
-        if len(database.blockchain.get(self.id).next_ids) > 0:
+    def remove_verify(self):
+        if len(pmpi.core.get_database().blockchain.get(self.id).next_ids) > 0:
             raise self.ChainOperationBlockedError("can't remove: blocked by another block")
 
     # Mine
@@ -244,25 +256,24 @@ class Block(pmpi.abstract.AbstractSignedObject):
 
     @classmethod
     def _get_dbname(cls):
-        return pmpi.core.Database.BLOCKS
+        return pmpi.database.Database.BLOCKS
 
-    @pmpi.core.database_required
+    @pmpi.core.with_database
     def put(self, database):
-        print(''.join(["{:02x}".format(x) for x in self.id]), "-- PUT --")
         super(Block, self).put()
         database.blockchain.add_block(self)
 
         for op in self.operations:
-            op.put(BlockRev.from_revision(self))
+            op.put(self.get_rev())
 
-    @pmpi.core.database_required
+    @pmpi.core.with_database
     def remove(self, database):
         super(Block, self).remove()
         database.blockchain.remove_block(self)
 
         # op.remove is actually smart -- removes operation only if it isn't needed any more.
         for op in self.operations:
-            op.remove(BlockRev.from_revision(self))
+            op.remove(self.get_rev())
 
     # Exceptions
 
