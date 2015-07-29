@@ -163,6 +163,8 @@ class AbstractSignedObject:
     def get(cls, database, obj_id):
         try:
             obj = cls._from_database_raw(database.get(cls._get_dbname(), obj_id))
+            obj.__requires_signature_verification = False
+            # TODO is the above line safe? it assumes that data stored in the database is always correctly signed...
             return obj
         except KeyError:
             raise cls.DoesNotExist

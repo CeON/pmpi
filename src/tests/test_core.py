@@ -1,7 +1,7 @@
 import os
 from unittest.case import TestCase
 from pmpi.abstract import AbstractRevision
-from pmpi.core import initialise_database, close_database
+from pmpi.core import initialise_database, close_database, get_database
 import pmpi.database
 
 
@@ -38,6 +38,10 @@ class TestInitialiseDatabase(TestCase):
 
         os.remove('test_database_file')
         os.remove('test_database_file2')
+
+    def test_no_database(self):
+        with self.assertRaisesRegex(pmpi.database.Database.InitialisationError, "initialise database first"):
+            get_database()
 
 
 class TestAbstractRevision(TestCase):

@@ -264,16 +264,3 @@ class BlockChain:
 
     class TreeError(Exception):
         pass
-
-    # TODO delete this debug method:
-    def show(self):
-        print("SHOW BLOCKCHAIN")
-
-        def s(b):
-            return int(b[0])
-
-        for k, record in self.__map.items():
-            print("block:", s(k))
-            print("previous:", s(record.previous_id) if record.previous_id is not None else "None")
-            print("next:", [s(n) for n in record.next_ids])
-            print("---")

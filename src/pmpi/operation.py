@@ -25,7 +25,8 @@ class Operation(pmpi.abstract.AbstractSignedObject):
 
     VERSION = 1
     PMPI_UUID = UUID('b230748e-bcee-4c3b-ba6a-5a25485b5de5')
-    # TODO add generating uuids based on the address (and maybe sth else, but it must be str due the requirements of the uuid5() function)...
+    # TODO add generating uuids based on the address
+    # TODO (and maybe sth else, but it must be str due the requirements of the uuid5() function)...
 
     __previous_operation_rev = None
     __uuid = None
