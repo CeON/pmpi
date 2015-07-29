@@ -62,6 +62,7 @@ class Identifier:
 
         :param database: provided by database_required decorator
         """
+        self.verify()
         database.put(pmpi.database.Database.IDENTIFIERS, self.uuid.bytes, self.operation_rev.id)
 
     @pmpi.core.with_database

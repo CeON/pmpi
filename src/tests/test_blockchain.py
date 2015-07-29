@@ -1,14 +1,17 @@
 import os
 from unittest.case import TestCase
+from unittest.mock import patch
 from uuid import uuid4
 from ecdsa.keys import SigningKey
-import time
 from pmpi.block import Block, BlockRev
 from pmpi.blockchain import BlockChain
-from pmpi.core import initialise_database, close_database
+from pmpi.core import initialise_database, close_database, get_blockchain
+from pmpi.identifier import Identifier
 from pmpi.operation import Operation, OperationRev
 from pmpi.utils import sign_object
 from pmpi.public_key import PublicKey
+
+patch.object = patch.object
 
 
 class TestBlockChain(TestCase):
@@ -80,8 +83,14 @@ class TestBlockChain(TestCase):
 
         return ops
 
-    def add_blocks(self, ops):
-        start_time = int(time.time()) - 100
+    def add_blocks(self):
+        """
+        create blocks:
+        blocks[0] -> blocks[1] -> blocks[2] -> blocks[3] -> blocks[5]
+                                           \-> blocks[4] -> blocks[6]
+        """
+        ops = self.add_operations()
+        start_time = 42
         blocks = [Block.from_operations_list(BlockRev(), start_time, [ops[0], ops[1]])]
         blocks[0].mine()
         sign_object(self.public_keys[0], self.private_keys[0], blocks[0])
@@ -107,7 +116,7 @@ class TestBlockChain(TestCase):
         return blocks
 
     def test_build_blocks(self):
-        blocks = self.add_blocks(self.add_operations())
+        blocks = self.add_blocks()
 
         for block in blocks:
             block.put()
@@ -144,14 +153,73 @@ class TestBlockChain(TestCase):
             with self.assertRaisesRegex(Block.GenesisBlockDuplication, "trying to create multiple genesis blocks"):
                 block.put()
 
-    def test_build_identifiers(self):
-        pass
+    def test_update_blocks(self):
+        blocks = self.add_blocks()
+        bc = get_blockchain()
 
-    def test_update_database(self):
-        pass
+        with patch.object(BlockChain, '_get_new_blocks', return_value=blocks):
+            bc.update_blocks()
 
-    def test_update_identifier(self):
-        pass
+        self.assertEqual(bc.max_depth, 5)
+        self.assertEqual(bc.head, blocks[5].id)
+
+        for block in blocks:
+            self.assertEqual(bc.get(block.id).previous_id, block.previous_block_rev.id)
+
+    def test_multiple_update_blocks(self):
+        blocks = self.add_blocks()
+        bc = get_blockchain()
+
+        def patched_update_blocks(block_list):
+            with patch.object(BlockChain, '_get_new_blocks', return_value=block_list):
+                bc.update_blocks()
+
+        for blocks_to_add, max_depth, head in (
+                (blocks[0:2], 2, blocks[1].id),
+                (blocks[2:3], 3, blocks[2].id),
+                (blocks[4:5], 4, blocks[4].id),
+                (blocks[3:4], 4, blocks[4].id),
+                (blocks[5:6], 5, blocks[5].id),
+                (blocks[6:7], 5, blocks[5].id)
+        ):
+            patched_update_blocks(blocks_to_add)
+            self.assertEqual(bc.max_depth, max_depth)
+            self.assertEqual(bc.head, head)
+
+    def test_delete_blocks(self):
+        blocks = self.add_blocks()
+        bc = get_blockchain()
+
+        with patch.object(BlockChain, '_get_new_blocks', return_value=blocks):
+            bc.update_blocks()
+
+        with self.assertRaisesRegex(Block.ChainOperationBlockedError, "can't remove: blocked by another block"):
+            blocks[4].remove()
+
+        self.assertEqual(bc.max_depth, 5)
+        self.assertEqual(bc.head, blocks[5].id)
+
+        for block_to_remove, max_depth, heads in (
+                (blocks[5], 5, [blocks[6].id]),
+                (blocks[6], 4, [blocks[3].id, blocks[4].id]),
+                (blocks[4], 4, [blocks[3].id]),
+                (blocks[3], 3, [blocks[2].id]),
+                (blocks[2], 2, [blocks[1].id]),
+                (blocks[1], 1, [blocks[0].id]),
+                (blocks[0], 0, [BlockRev().id])
+        ):
+            block_to_remove.remove()
+            self.assertEqual(bc.max_depth, max_depth)
+            self.assertIn(bc.head, heads)
+
+        with patch.object(BlockChain, '_get_new_blocks', return_value=blocks):
+            bc.update_blocks()
+
+        self.assertEqual(bc.max_depth, 5)
+        self.assertEqual(bc.head, blocks[5].id)
+
+        self.assertCountEqual([op.uuid for op in blocks[0].operations + blocks[2].operations[1:2]],
+                              Identifier.get_uuid_list())
 
     def test_get_operations_chain(self):
         pass

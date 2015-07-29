@@ -25,6 +25,7 @@ class Operation(pmpi.abstract.AbstractSignedObject):
 
     VERSION = 1
     PMPI_UUID = UUID('b230748e-bcee-4c3b-ba6a-5a25485b5de5')
+    # TODO add generating uuids based on the address (and maybe sth else, but it must be str due the requirements of the uuid5() function)...
 
     __previous_operation_rev = None
     __uuid = None
@@ -117,7 +118,7 @@ class Operation(pmpi.abstract.AbstractSignedObject):
         return chain
 
     def forward_operations_chain(self, block_id):
-        return pmpi.core.get_database().blockchain.forward_operations_chain(self.get_rev(), block_id)
+        return pmpi.core.get_blockchain().forward_operations_chain(self.get_rev(), block_id)
 
     def get_rev(self):
         return OperationRev.from_obj(self)
@@ -233,9 +234,7 @@ class Operation(pmpi.abstract.AbstractSignedObject):
         """
         Put the operation as contained by a given block_rev.
         """
-        print("Putting operation. cntblcks={}, block_rev.id={}".format(self.containing_blocks, block_rev.id))
         self.__add_containing_block(block_rev)
-        print("... cntblk={}".format(self.containing_blocks))
         super(Operation, self).put()  # TODO what if it will throw an exception?
 
     def remove(self, block_rev):

@@ -9,7 +9,13 @@ class TestAbstractSignedObject(TestCase):
         abstract_object = pmpi.abstract.AbstractSignedObject()
 
         with self.assertRaises(NotImplementedError):
+            abstract_object.get_rev()
+
+        with self.assertRaises(NotImplementedError):
             abstract_object.unsigned_raw()
+
+        with self.assertRaises(NotImplementedError):
+            abstract_object._from_raw_without_verifying(b"something")
 
         with self.assertRaises(NotImplementedError):
             abstract_object.verify()

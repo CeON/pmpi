@@ -230,18 +230,18 @@ class Block(pmpi.abstract.AbstractSignedObject):
     def put_verify(self):
         prev_block = self.previous_block_rev.obj
         if prev_block is None:
-            if len(pmpi.core.get_database().blockchain.get(BlockRev().id).next_ids) > 0:
+            if len(pmpi.core.get_blockchain().get(BlockRev().id).next_ids) > 0:
                 raise Block.GenesisBlockDuplication("trying to create multiple genesis blocks")
 
     def remove_verify(self):
-        if len(pmpi.core.get_database().blockchain.get(self.id).next_ids) > 0:
+        if len(pmpi.core.get_blockchain().get(self.id).next_ids) > 0:
             raise self.ChainOperationBlockedError("can't remove: blocked by another block")
 
     # Mine
 
     def mine(self):
         unmined_raw = self.unmined_raw()
-        assert 0 < self.difficulty < 256  # TODO ...
+        assert 0 < self.difficulty < 256
         target = ((1 << 256 - self.difficulty) - 1).to_bytes(32, 'big')
 
         self.padding = 0

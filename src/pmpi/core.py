@@ -40,3 +40,7 @@ def get_database():
         return __database
     else:
         raise pmpi.database.Database.InitialisationError("initialise database first")
+
+
+def get_blockchain():
+    return get_database().blockchain

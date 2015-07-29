@@ -130,8 +130,4 @@ def test():
     os.remove('test_database_file')
 
 
-print("hello")
-
 test()
-
-print("goodbye")
