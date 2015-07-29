@@ -83,13 +83,12 @@ class TestBlockChain(TestCase):
 
         return ops
 
-    def add_blocks(self):
+    def add_blocks(self, ops):
         """
         create blocks:
         blocks[0] -> blocks[1] -> blocks[2] -> blocks[3] -> blocks[5]
                                            \-> blocks[4] -> blocks[6]
         """
-        ops = self.add_operations()
         start_time = 42
         blocks = [Block.from_operations_list(BlockRev(), start_time, [ops[0], ops[1]])]
         blocks[0].mine()
@@ -116,7 +115,7 @@ class TestBlockChain(TestCase):
         return blocks
 
     def test_build_blocks(self):
-        blocks = self.add_blocks()
+        blocks = self.add_blocks(self.add_operations())
 
         for block in blocks:
             block.put()
@@ -154,7 +153,7 @@ class TestBlockChain(TestCase):
                 block.put()
 
     def test_update_blocks(self):
-        blocks = self.add_blocks()
+        blocks = self.add_blocks(self.add_operations())
         bc = get_blockchain()
 
         with patch.object(BlockChain, '_get_new_blocks', return_value=blocks):
@@ -167,7 +166,7 @@ class TestBlockChain(TestCase):
             self.assertEqual(bc.get(block.id).previous_id, block.previous_block_rev.id)
 
     def test_multiple_update_blocks(self):
-        blocks = self.add_blocks()
+        blocks = self.add_blocks(self.add_operations())
         bc = get_blockchain()
 
         def patched_update_blocks(block_list):
@@ -187,7 +186,7 @@ class TestBlockChain(TestCase):
             self.assertEqual(bc.head, head)
 
     def test_delete_blocks(self):
-        blocks = self.add_blocks()
+        blocks = self.add_blocks(self.add_operations())
         bc = get_blockchain()
 
         with patch.object(BlockChain, '_get_new_blocks', return_value=blocks):
@@ -221,8 +220,31 @@ class TestBlockChain(TestCase):
         self.assertCountEqual([op.uuid for op in blocks[0].operations + blocks[2].operations[1:2]],
                               Identifier.get_uuid_list())
 
-    def test_get_operations_chain(self):
-        pass
+    def test_wrong_operations(self):
+        operations = self.add_operations()
+        blocks = self.add_blocks(operations)
+        bc = get_blockchain()
+
+        with patch.object(BlockChain, '_get_new_blocks', return_value=blocks):
+            bc.update_blocks()
+
+        with self.assertRaisesRegex(Block.VerifyError, "some of the new operations have been added to the block already"):
+            blocks[5].extend_operations([operations[9]])
+
+        illegal_operation = Operation(operations[7].get_rev(), operations[7].uuid, 'illegal address', [])
+        sign_object(self.public_keys[2], self.private_keys[2], illegal_operation)
+
+        blocks[5].extend_operations([illegal_operation])
+        blocks[5].mine()
+
+        with self.assertRaisesRegex(Block.ChainError, "operations are creating tree inside the block"):
+            blocks[5].put()
+
+        blocks[2].extend_operations([operations[6]])
+        blocks[2].mine()
+        with self.assertRaisesRegex(Block.ChainError, "operation's previous_operation_rev is not pointing at "
+                                                      "the last operation on current blockchain"):
+            blocks[2].put()
 
     def tearDown(self):
         close_database()

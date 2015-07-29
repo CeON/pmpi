@@ -147,7 +147,7 @@ class BlockChain:
         new_head = self.head
 
         for block in self._get_new_blocks():
-            # TODO some additional criteria for accepting block
+            # TODO some additional criteria for accepting block?
 
             block.put()  # put() is making all needed validations before actually putting the block into the database
             record = self.get(block.id)

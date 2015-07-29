@@ -236,7 +236,11 @@ class Operation(pmpi.abstract.AbstractSignedObject):
         Put the operation as contained by a given block_rev.
         """
         self.__add_containing_block(block_rev)
-        super(Operation, self).put()  # TODO what if it will throw an exception?
+        try:
+            super(Operation, self).put()
+        except Exception:
+            self.__remove_containing_block(block_rev)
+            raise
 
     def remove(self, block_rev):
         # When the containing_blocks tuple is cleared, we can remove operation. We don't need to check if there are any

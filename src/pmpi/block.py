@@ -78,7 +78,10 @@ class Block(pmpi.abstract.AbstractSignedObject):
         return self.__operations
 
     def extend_operations(self, new_operations):
-        self.__operations += tuple(new_operations)
+        distinct_operations = tuple(filter(lambda op: op.id not in self.__operations_ids, new_operations))
+        if len(distinct_operations) != len(new_operations):
+            raise self.VerifyError("some of the new operations have been added to the block already")
+        self.__operations += distinct_operations
         self.__operations_ids += tuple(op.id for op in new_operations)
 
     def is_checksum_correct(self):
