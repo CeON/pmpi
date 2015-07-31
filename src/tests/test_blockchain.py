@@ -30,53 +30,45 @@ class TestBlockChain(TestCase):
         for uuid[2]: op[5] -> op[7] -> op[9]
         """
         ops = [
-            Operation(OperationRev(), self.uuids[0], 'http://example1.com/', [self.public_keys[0]]),
-            Operation(OperationRev(), self.uuids[1], 'http://example2.com/', [self.public_keys[1]]),
+            Operation(OperationRev(), 'http://example1.com/', [self.public_keys[0]]),
+            Operation(OperationRev(), 'http://example2.com/', [self.public_keys[1]]),
         ]
 
         sign_object(self.public_keys[0], self.private_keys[0], ops[0])
         sign_object(self.public_keys[0], self.private_keys[0], ops[1])
 
         ops.extend([
-            Operation(OperationRev.from_obj(ops[0]), self.uuids[0],
-                      'http://example1.com/v2/', [self.public_keys[0]]),
-            Operation(OperationRev.from_obj(ops[1]), self.uuids[1],
-                      'http://example2.com/v2/', [self.public_keys[1]])
+            Operation(OperationRev.from_obj(ops[0]), 'http://example1.com/v2/', [self.public_keys[0]]),
+            Operation(OperationRev.from_obj(ops[1]), 'http://example2.com/v2/', [self.public_keys[1]])
         ])
 
         sign_object(self.public_keys[0], self.private_keys[0], ops[2])
         sign_object(self.public_keys[1], self.private_keys[1], ops[3])
 
         ops.append(
-            Operation(OperationRev.from_obj(ops[3]), self.uuids[1],
-                      'http://example2.com/v3/', [self.public_keys[1]])
+            Operation(OperationRev.from_obj(ops[3]), 'http://example2.com/v3/', [self.public_keys[1]])
         )
 
         sign_object(self.public_keys[1], self.private_keys[1], ops[4])
 
         ops.extend([
-            Operation(OperationRev(), self.uuids[2],
-                      'http://example3.com/', [self.public_keys[1], self.public_keys[2]]),
-            Operation(OperationRev.from_obj(ops[2]), self.uuids[0],
-                      'http://example1.com/v3/', [self.public_keys[0], self.public_keys[2]])
+            Operation(OperationRev(), 'http://example3.com/', [self.public_keys[1], self.public_keys[2]]),
+            Operation(OperationRev.from_obj(ops[2]), 'http://example1.com/v3/', [self.public_keys[0], self.public_keys[2]])
         ])
 
         sign_object(self.public_keys[2], self.private_keys[2], ops[5])
         sign_object(self.public_keys[0], self.private_keys[0], ops[6])
 
         ops.extend([
-            Operation(OperationRev.from_obj(ops[5]), self.uuids[2],
-                      'http://example3.com/v2/', [self.public_keys[2]]),
-            Operation(OperationRev.from_obj(ops[6]), self.uuids[0],
-                      'http://example1.com/v4/', [self.public_keys[2]])
+            Operation(OperationRev.from_obj(ops[5]), 'http://example3.com/v2/', [self.public_keys[2]]),
+            Operation(OperationRev.from_obj(ops[6]), 'http://example1.com/v4/', [self.public_keys[2]])
         ])
 
         sign_object(self.public_keys[1], self.private_keys[1], ops[7])
         sign_object(self.public_keys[2], self.private_keys[2], ops[8])
 
         ops.append(
-            Operation(OperationRev.from_obj(ops[7]), self.uuids[2],
-                      'http://example3.com/v3/', [self.public_keys[2]])
+            Operation(OperationRev.from_obj(ops[7]), 'http://example3.com/v3/', [self.public_keys[2]])
         )
 
         sign_object(self.public_keys[2], self.private_keys[2], ops[9])
@@ -149,7 +141,7 @@ class TestBlockChain(TestCase):
         blocks[0].put()
 
         for block in blocks:
-            with self.assertRaisesRegex(Block.GenesisBlockDuplication, "trying to create multiple genesis blocks"):
+            with self.assertRaisesRegex(Block.GenesisBlockDuplicationError, "trying to create multiple genesis blocks"):
                 block.put()
 
     def test_update_blocks(self):
@@ -231,7 +223,7 @@ class TestBlockChain(TestCase):
         with self.assertRaisesRegex(Block.VerifyError, "some of the new operations have been added to the block already"):
             blocks[5].extend_operations([operations[9]])
 
-        illegal_operation = Operation(operations[7].get_rev(), operations[7].uuid, 'illegal address', [])
+        illegal_operation = Operation(operations[7].get_rev(), 'illegal address', [])
         sign_object(self.public_keys[2], self.private_keys[2], illegal_operation)
 
         blocks[5].extend_operations([illegal_operation])

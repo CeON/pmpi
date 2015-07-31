@@ -14,11 +14,11 @@ from pmpi.public_key import PublicKey
 
 class TestIdentifier(TestCase):
     def setUp(self):
-        self.uuid = uuid4()
         self.private_key = SigningKey.generate()
         self.public_keys = tuple(PublicKey.from_signing_key(SigningKey.generate()) for _ in range(2))
-        self.operation = Operation(OperationRev(), self.uuid, 'http://example.com', self.public_keys)
+        self.operation = Operation(OperationRev(), 'http://example.com', self.public_keys)
         sign_object(PublicKey.from_signing_key(self.private_key), self.private_key, self.operation)
+        self.uuid = self.operation.uuid
         self.identifier = Identifier.from_operation(self.operation)
 
     def test_fields(self):
@@ -43,7 +43,7 @@ class TestNoDatabase(TestCase):
         with self.assertRaisesRegex(pmpi.database.Database.InitialisationError, "initialise database first"):
             Identifier.get(uuid4())
 
-        operation = Operation(OperationRev(), uuid4(), 'http://example.com/', [])
+        operation = Operation(OperationRev(), 'http://example.com/', [])
         sk = SigningKey.generate()
         sign_object(PublicKey.from_signing_key(sk), sk, operation)
         identifier = Identifier.from_operation(operation)
@@ -60,8 +60,7 @@ class TestIdentifierDatabase(TestCase):
         initialise_database('test_database_file')
 
         self.operations = [
-            Operation(OperationRev(), uuid4(), 'http://example.com/' + url,
-                      [PublicKey.from_signing_key(SigningKey.generate())])
+            Operation(OperationRev(), 'http://example.com/' + url, [PublicKey.from_signing_key(SigningKey.generate())])
             for url in ('first/', 'second/')]
 
         for op in self.operations:

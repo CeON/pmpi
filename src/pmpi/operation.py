@@ -1,10 +1,11 @@
 from io import BytesIO
 from uuid import UUID, uuid5
+import binascii
+
 import pmpi.database
 from pmpi.exceptions import RawFormatError
 from pmpi.utils import read_bytes, read_uint32, read_string, read_sized_bytes
 from pmpi.public_key import PublicKey
-
 import pmpi.abstract
 import pmpi.block
 import pmpi.core
@@ -33,23 +34,29 @@ class Operation(pmpi.abstract.AbstractSignedObject):
     __address = None
     __owners = None
 
-    def __init__(self, previous_operation_rev, uuid, address, owners):
+    def __init__(self, previous_operation_rev, address, owners):
         """
         :type owners: tuple[PublicKey] | list[PublicKey]
         """
 
         self.__previous_operation_rev = previous_operation_rev
-        self.__uuid = uuid
         self.__address = address
         self.__owners = tuple(owners)
 
         self.__containing_blocks = tuple()
-        # self.__uuid = self.generate_uuid()
+        self.__uuid = self.generate_uuid()
 
     @classmethod
     def from_owners_der(cls, previous_operation_rev, uuid, address, owners_der):
-        op = cls(previous_operation_rev, uuid, address, [])
+        op = cls._construct_with_uuid(previous_operation_rev, uuid, address, [])
         op.__owners = tuple(PublicKey(der) for der in owners_der)
+        return op
+
+    @classmethod
+    def _construct_with_uuid(cls, previous_operation_rev, uuid, address, owners):
+        op = cls(OperationRev(), address, owners)
+        op.__previous_operation_rev = previous_operation_rev
+        op.__uuid = uuid
         return op
 
     # Getters
@@ -102,7 +109,13 @@ class Operation(pmpi.abstract.AbstractSignedObject):
         self.__containing_blocks = tuple(bl for bl in self.containing_blocks if bl != block_rev.id)
 
     def generate_uuid(self):
-        return uuid5(self.PMPI_UUID, self.address + ''.join(self.owners_der))
+        if self.previous_operation_rev.is_none():
+            return uuid5(self.PMPI_UUID, self.address + binascii.hexlify(b''.join(self.owners_der)).decode())
+        else:
+            try:
+                return self.previous_operation_rev.obj.uuid
+            except Operation.DoesNotExist:
+                raise self.ChainError("previous_operation_rev does not exist")
 
     def backward_operations_chain(self, end_operation_id=OperationRev().id):
         root = OperationRev().id
@@ -180,7 +193,15 @@ class Operation(pmpi.abstract.AbstractSignedObject):
 
     # Verification
 
+    def verify_uuid(self):
+        if self.uuid != self.generate_uuid():
+            if self.previous_operation_rev.is_none():
+                raise self.UUIDError("UUID of the minting operation does not fulfill the requirements")
+            else:
+                raise self.UUIDError("UUID mismatch")
+
     def verify(self):
+        self.verify_uuid()
         self.verify_signature()
 
         if len(self.owners_der) != len(set(self.owners_der)):
@@ -195,14 +216,6 @@ class Operation(pmpi.abstract.AbstractSignedObject):
                 if self.uuid != prev_operation.uuid:
                     raise self.VerifyError("uuid mismatch")
 
-                # TODO [is it necessary?] check if prev_operation already exist in database!
-                # TODO [[ OR ]] should it be moved to put_verify???
-            else:
-                pass
-                # TODO MINTING OPERATION -- check if uuid fulfill some requirements
-                # if self.uuid != self.generate_uuid():
-                #     raise self.UUIDError("UUID does not fulfill requirements")
-
         except self.DoesNotExist:
             raise self.ChainError("previous_operation_rev does not exist")
 
@@ -212,7 +225,12 @@ class Operation(pmpi.abstract.AbstractSignedObject):
         if self.previous_operation_rev.is_none():  # it's a minting operation
             for rev in Operation.get_ids_list():
                 if rev != self.id and Operation.get(rev).uuid == self.uuid:
-                    raise self.ChainError("trying to create a minting operation for an existing uuid")
+                    raise self.VerifyError("trying to create a minting operation for an existing uuid")
+        else:
+            try:
+                Operation.get(self.previous_operation_rev.id)
+            except Operation.DoesNotExist:
+                raise self.VerifyError("previous_operation is not in the database")
 
     def remove_verify(self):
         if len(self.containing_blocks) > 0:

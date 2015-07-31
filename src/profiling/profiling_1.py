@@ -22,42 +22,33 @@ def test():
     obj_uuids = [uuid4() for _ in range(3)]
 
     obj_operations = [[
-        Operation(OperationRev(),
-                  obj_uuids[0], 'http://example0.com/v0/', [obj_public_key]),
-        Operation(OperationRev(),
-                  obj_uuids[1], 'http://example1.com/v0/', [obj_public_key])
+        Operation(OperationRev(), 'http://example0.com/v0/', [obj_public_key]),
+        Operation(OperationRev(), 'http://example1.com/v0/', [obj_public_key])
     ]]
 
     for op in obj_operations[0]:
         sign_object(obj_public_key, obj_private_key, op)
 
     obj_operations.append([
-        Operation(OperationRev.from_obj(obj_operations[0][0]),
-                  obj_uuids[0], 'http://example0.com/v1/', [obj_public_key]),
-        Operation(OperationRev.from_obj(obj_operations[0][1]),
-                  obj_uuids[1], 'http://example1.com/v1/', [obj_public_key]),
-        Operation(OperationRev(),
-                  obj_uuids[2], 'http://example2.com/v0/', [obj_public_key])
+        Operation(OperationRev.from_obj(obj_operations[0][0]), 'http://example0.com/v1/', [obj_public_key]),
+        Operation(OperationRev.from_obj(obj_operations[0][1]), 'http://example1.com/v1/', [obj_public_key]),
+        Operation(OperationRev(), 'http://example2.com/v0/', [obj_public_key])
     ])
 
     for op in obj_operations[1]:
         sign_object(obj_public_key, obj_private_key, op)
 
     obj_operations.append([
-        Operation(OperationRev.from_obj(obj_operations[1][0]),
-                  obj_uuids[0], 'http://example0.com/v2/', [obj_public_key]),
-        Operation(OperationRev.from_obj(obj_operations[1][1]),
-                  obj_uuids[1], 'http://example1.com/v2/', [obj_public_key])
+        Operation(OperationRev.from_obj(obj_operations[1][0]), 'http://example0.com/v2/', [obj_public_key]),
+        Operation(OperationRev.from_obj(obj_operations[1][1]), 'http://example1.com/v2/', [obj_public_key])
     ])
 
     for op in obj_operations[2]:
         sign_object(obj_public_key, obj_private_key, op)
 
     obj_operations.append([
-        Operation(OperationRev.from_obj(obj_operations[1][1]),
-                  obj_uuids[1], 'http://alternative1.com/', [obj_public_key]),
-        Operation(OperationRev.from_obj(obj_operations[1][2]),
-                  obj_uuids[2], 'http://alternative2.com/', [obj_public_key])
+        Operation(OperationRev.from_obj(obj_operations[1][1]), 'http://alternative1.com/', [obj_public_key]),
+        Operation(OperationRev.from_obj(obj_operations[1][2]), 'http://alternative2.com/', [obj_public_key])
     ])
 
     for op in obj_operations[3]:

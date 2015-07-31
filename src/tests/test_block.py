@@ -22,8 +22,8 @@ class TestSingleBlock(TestCase):
         self.timestamp = int(time.time())
 
         self.operations = (
-            Operation(OperationRev(), uuid4(), 'http://example1.com/', [self.public_key]),
-            Operation(OperationRev(), uuid4(), 'http://example2.com/', [self.public_key])
+            Operation(OperationRev(), 'http://example1.com/', [self.public_key]),
+            Operation(OperationRev(), 'http://example2.com/', [self.public_key])
         )
 
         for op in self.operations:
@@ -98,10 +98,13 @@ class TestSingleBlock(TestCase):
         with self.assertRaisesRegex(Block.VerifyError, "wrong object id"):
             Block.from_raw_with_operations(raw).verify_id(sha256(b'wrong hash'))
 
+        with self.assertRaisesRegex(RawFormatError, "version number mismatch"):
+            Block.from_raw((2).to_bytes(4, 'big') + self.block.raw()[4:])
+
     def test_unsigned_operation(self):
         with self.assertRaisesRegex(Block.VerifyError, "at least one of the operations is not properly signed"):
             self.block = Block.from_operations_list(self.block.previous_block_rev, self.block.timestamp, (
-                Operation(self.block.operations[0].previous_operation_rev, self.block.operations[0].uuid,
+                Operation(self.block.operations[0].previous_operation_rev,
                           'http://different.example.com/', self.block.operations[0].owners),
                 self.block.operations[1]
             ))
@@ -122,8 +125,8 @@ class TestOperationsLimits(TestCase):
         self.private_key = SigningKey.generate()
         self.public_key = PublicKey.from_signing_key(self.private_key)
 
-        self.operations = [Operation(OperationRev(), uuid4(),
-                                     'http://example.com/', [self.public_key]) for _ in range(Block.MIN_OPERATIONS + 1)]
+        self.operations = [Operation(
+            OperationRev(), 'http://example.com/', [self.public_key]) for _ in range(Block.MIN_OPERATIONS + 1)]
         for op in self.operations:
             sign_object(self.public_key, self.private_key, op)
 
@@ -163,8 +166,8 @@ class TestBlockNoDatabase(TestCase):
         public_key = PublicKey.from_signing_key(private_key)
 
         operations = [
-            Operation(OperationRev(), uuid4(), 'http://example0.com/', [public_key]),
-            Operation(OperationRev(), uuid4(), 'http://example1.com/', [public_key])
+            Operation(OperationRev(), 'http://example0.com/', [public_key]),
+            Operation(OperationRev(), 'http://example1.com/', [public_key])
         ]
 
         for op in operations:
@@ -187,45 +190,36 @@ class TestBlockDatabase(TestCase):
 
         self.private_key = SigningKey.generate()
         self.public_key = PublicKey.from_signing_key(self.private_key)
-        self.uuids = [uuid4() for _ in range(3)]
+        # self.uuids = [uuid4() for _ in range(3)]
 
         self.operations = [[
-            Operation(OperationRev(),
-                      self.uuids[0], 'http://example0.com/v0/', [self.public_key]),
-            Operation(OperationRev(),
-                      self.uuids[1], 'http://example1.com/v0/', [self.public_key])
+            Operation(OperationRev(),'http://example0.com/v0/', [self.public_key]),
+            Operation(OperationRev(),'http://example1.com/v0/', [self.public_key])
         ]]
 
         for op in self.operations[0]:
             sign_object(self.public_key, self.private_key, op)
 
         self.operations.append([
-            Operation(OperationRev.from_obj(self.operations[0][0]),
-                      self.uuids[0], 'http://example0.com/v1/', [self.public_key]),
-            Operation(OperationRev.from_obj(self.operations[0][1]),
-                      self.uuids[1], 'http://example1.com/v1/', [self.public_key]),
-            Operation(OperationRev(),
-                      self.uuids[2], 'http://example2.com/v0/', [self.public_key])
+            Operation(OperationRev.from_obj(self.operations[0][0]), 'http://example0.com/v1/', [self.public_key]),
+            Operation(OperationRev.from_obj(self.operations[0][1]), 'http://example1.com/v1/', [self.public_key]),
+            Operation(OperationRev(), 'http://example2.com/v0/', [self.public_key])
         ])
 
         for op in self.operations[1]:
             sign_object(self.public_key, self.private_key, op)
 
         self.operations.append([
-            Operation(OperationRev.from_obj(self.operations[1][0]),
-                      self.uuids[0], 'http://example0.com/v2/', [self.public_key]),
-            Operation(OperationRev.from_obj(self.operations[1][1]),
-                      self.uuids[1], 'http://example1.com/v2/', [self.public_key])
+            Operation(OperationRev.from_obj(self.operations[1][0]),'http://example0.com/v2/', [self.public_key]),
+            Operation(OperationRev.from_obj(self.operations[1][1]), 'http://example1.com/v2/', [self.public_key])
         ])
 
         for op in self.operations[2]:
             sign_object(self.public_key, self.private_key, op)
 
         self.operations.append([
-            Operation(OperationRev.from_obj(self.operations[1][1]),
-                      self.uuids[1], 'http://alternative1.com/', [self.public_key]),
-            Operation(OperationRev.from_obj(self.operations[1][2]),
-                      self.uuids[2], 'http://alternative2.com/', [self.public_key])
+            Operation(OperationRev.from_obj(self.operations[1][1]), 'http://alternative1.com/', [self.public_key]),
+            Operation(OperationRev.from_obj(self.operations[1][2]), 'http://alternative2.com/', [self.public_key])
         ])
 
         for op in self.operations[3]:
@@ -259,7 +253,7 @@ class TestBlockDatabase(TestCase):
     def test_2_put(self):
         self.blocks[0].put()
 
-        with self.assertRaisesRegex(Block.GenesisBlockDuplication, "trying to create multiple genesis blocks"):
+        with self.assertRaisesRegex(Block.GenesisBlockDuplicationError, "trying to create multiple genesis blocks"):
             self.blocks[0].put()
 
         self.blocks[1].put()

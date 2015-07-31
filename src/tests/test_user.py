@@ -29,8 +29,7 @@ class TestUser(TestCase):
         self.assertNotEqual(len(user._private_key.to_der()), len(SigningKey.generate().to_der()))
 
     def test_sign_operation(self):
-        op = Operation(OperationRev(), uuid4(), 'http://example.com/',
-                       [PublicKey.from_signing_key(SigningKey.generate())])
+        op = Operation(OperationRev(), 'http://example.com/', [PublicKey.from_signing_key(SigningKey.generate())])
         user = User.new_keys()
 
         with self.assertRaisesRegex(Operation.VerifyError, "object is not signed"):

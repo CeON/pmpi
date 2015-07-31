@@ -234,7 +234,7 @@ class Block(pmpi.abstract.AbstractSignedObject):
         prev_block = self.previous_block_rev.obj
         if prev_block is None:
             if len(pmpi.core.get_blockchain().get(BlockRev().id).next_ids) > 0:
-                raise Block.GenesisBlockDuplication("trying to create multiple genesis blocks")
+                raise Block.GenesisBlockDuplicationError("trying to create multiple genesis blocks")
 
     def remove_verify(self):
         if len(pmpi.core.get_blockchain().get(self.id).next_ids) > 0:
@@ -280,5 +280,5 @@ class Block(pmpi.abstract.AbstractSignedObject):
 
     # Exceptions
 
-    class GenesisBlockDuplication(pmpi.abstract.AbstractSignedObject.DuplicationError):
+    class GenesisBlockDuplicationError(pmpi.abstract.AbstractSignedObject.DuplicationError):
         pass

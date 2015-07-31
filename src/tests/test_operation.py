@@ -24,14 +24,12 @@ class TestSingleOperation(TestCase):
         self.private_key = SigningKey.generate(curve=NIST256p)
         self.public_key = PublicKey.from_signing_key(self.private_key)
 
-        self.uuid = uuid4()
-        self.operation = Operation(OperationRev(), self.uuid, 'http://example.com/', [self.public_key])
+        self.operation = Operation(OperationRev(), 'http://example.com/', [self.public_key])
 
         sign_object(self.public_key, self.private_key, self.operation)
 
     def test_fields(self):
         self.assertEqual(self.operation.previous_operation_rev, OperationRev())
-        self.assertEqual(self.operation.uuid, self.uuid)
         self.assertEqual(self.operation.address, 'http://example.com/')
         self.assertEqual(self.operation.owners, (self.public_key,))
         self.assertEqual(self.operation.public_key, self.public_key)
@@ -97,7 +95,6 @@ class TestSingleOperation(TestCase):
 
     def test_owners(self):
         self.operation = Operation(self.operation.previous_operation_rev,
-                                   self.operation.uuid,
                                    self.operation.address,
                                    [self.public_key, self.public_key])
         sign_object(self.public_key, self.private_key, self.operation)
@@ -106,7 +103,6 @@ class TestSingleOperation(TestCase):
             self.operation.verify()
 
         self.operation = Operation(self.operation.previous_operation_rev,
-                                   self.operation.uuid,
                                    self.operation.address,
                                    [])
         sign_object(self.public_key, self.private_key, self.operation)
@@ -120,7 +116,7 @@ class TestMultipleOperations(TestCase):
         self.public_keys = [PublicKey.from_signing_key(private_key) for private_key in self.private_keys]
 
         self.operation = [
-            Operation(OperationRev(), uuid4(), 'http://example.com/', [self.public_keys[1], self.public_keys[2]]),
+            Operation(OperationRev(), 'http://example.com/', [self.public_keys[1], self.public_keys[2]]),
             None, None
         ]
 
@@ -141,14 +137,14 @@ class TestMultipleOperations(TestCase):
 
     def test_1_operation(self):
         sign_object(self.public_keys[0], self.private_keys[0], self.operation[0])
-        self.operation[1] = Operation(OperationRev.from_obj(self.operation[0]), self.operation[0].uuid,
+        self.operation[1] = Operation(OperationRev.from_obj(self.operation[0]),
                                       'http://illegal.example.com/', [self.public_keys[2]])
 
         with self.assertRaises(Operation.OwnershipError):
             sign_object(self.public_keys[0], self.private_keys[0], self.operation[1])
             self.operation[1].verify()
 
-        self.operation[1] = Operation(OperationRev.from_obj(self.operation[0]), self.operation[0].uuid,
+        self.operation[1] = Operation(OperationRev.from_obj(self.operation[0]),
                                       'http://new.example.com/', [self.public_keys[2]])
         sign_object(self.public_keys[2], self.private_keys[2], self.operation[1])
 
@@ -156,18 +152,17 @@ class TestMultipleOperations(TestCase):
 
     def test_2_operation(self):
         sign_object(self.public_keys[1], self.private_keys[1], self.operation[0])
-        self.operation[1] = Operation(OperationRev.from_obj(self.operation[0]), self.operation[0].uuid,
+        self.operation[1] = Operation(OperationRev.from_obj(self.operation[0]),
                                       'http://new.example.com/', [self.public_keys[2]])
         sign_object(self.public_keys[2], self.private_keys[2], self.operation[1])
-        self.operation[2] = Operation(OperationRev.from_obj(self.operation[1]), uuid4(),
-                                      'http://new2.example.com', [])
+        self.operation[2] = Operation._construct_with_uuid(OperationRev.from_obj(self.operation[1]), uuid4(),
+                                                           'http://new2.example.com', [])
 
-        with self.assertRaisesRegex(Operation.VerifyError, "uuid mismatch"):
+        with self.assertRaisesRegex(Operation.UUIDError, "UUID mismatch"):
             sign_object(self.public_keys[2], self.private_keys[2], self.operation[2])
             self.operation[2].verify()
 
-        self.operation[2] = Operation(OperationRev.from_obj(self.operation[1]), self.operation[0].uuid,
-                                      'http://new2.example.com', [])
+        self.operation[2] = Operation(OperationRev.from_obj(self.operation[1]), 'http://new2.example.com', [])
         sign_object(self.public_keys[2], self.private_keys[2], self.operation[2])
         self.operation[2].verify()
 
@@ -183,11 +178,10 @@ class TestOperationDatabase(TestCase):
         self.private_key = SigningKey.generate()
         self.public_key = PublicKey.from_signing_key(self.private_key)
 
-        uuid = uuid4()
         self.operations = [
-            Operation(OperationRev(), uuid, 'http://example.com/', [self.public_key]),
-            Operation(OperationRev(), uuid, 'http://example2.com/', [self.public_key]),
-            Operation(OperationRev(), uuid4(), 'http://example3.com/', [self.public_key])
+            Operation(OperationRev(), 'http://example.com/', [self.public_key]),
+            Operation(OperationRev(), 'http://example2.com/', [self.public_key]),
+            Operation(OperationRev(), 'http://example3.com/', [self.public_key])
         ]
 
     def test_0_empty(self):
@@ -207,7 +201,6 @@ class TestOperationDatabase(TestCase):
             self.operations[0].put()
 
         self.operations[1] = Operation(OperationRev.from_obj(self.operations[0]),
-                                       self.operations[1].uuid,
                                        self.operations[1].address,
                                        self.operations[1].owners)
         sign_object(self.public_key, self.private_key, self.operations[1])
@@ -226,7 +219,6 @@ class TestOperationDatabase(TestCase):
         sign_object(self.public_key, self.private_key, self.operations[0])
 
         self.operations[1] = Operation(OperationRev.from_obj(self.operations[0]),
-                                       self.operations[1].uuid,
                                        self.operations[1].address,
                                        self.operations[1].owners)
 
@@ -266,7 +258,7 @@ class TestNoDatabase(TestCase):
         with self.assertRaisesRegex(pmpi.database.Database.InitialisationError, "initialise database first"):
             Operation.get(sha256(b'something').digest())
 
-        operation = Operation(OperationRev(), uuid4(), 'http://example.com/', [])
+        operation = Operation(OperationRev(), 'http://example.com/', [])
         sk = SigningKey.generate()
         sign_object(PublicKey.from_signing_key(sk), sk, operation)
 
@@ -287,12 +279,10 @@ class TestOperationVerify(TestCase):
         self.private_keys = [SigningKey.generate(), SigningKey.generate()]
         self.public_keys = [PublicKey.from_signing_key(private_key) for private_key in self.private_keys]
 
-        uuid = uuid4()
-
         self.operation = [
-            Operation(OperationRev(), uuid, 'http://example.com/', [self.public_keys[1]]),
-            Operation(OperationRev(), uuid, 'http://example2.com/', [self.public_keys[0], self.public_keys[1]]),
-            Operation(OperationRev(), uuid4(), 'http://example3.com/', [self.public_keys[1]])
+            Operation(OperationRev(), 'http://example.com/', [self.public_keys[1]]),
+            Operation(OperationRev(), 'http://example2.com/', [self.public_keys[0], self.public_keys[1]]),
+            Operation(OperationRev(), 'http://example3.com/', [self.public_keys[1]])
         ]
 
     def test_put_operation0(self):
@@ -302,17 +292,33 @@ class TestOperationVerify(TestCase):
         sign_object(self.public_keys[0], self.private_keys[0], self.operation[0])
         self.operation[0].put()
 
-    def test_put_operation1(self):
+    def test_put_operation0_and_copy(self):
         sign_object(self.public_keys[0], self.private_keys[0], self.operation[0])
-        sign_object(self.public_keys[0], self.private_keys[0], self.operation[1])
-
         self.operation[0].put()
 
-        with self.assertRaisesRegex(Operation.ChainError, "trying to create a minting operation for an existing uuid"):
+        copied_op = Operation(self.operation[0].previous_operation_rev,
+                              self.operation[0].address,
+                              self.operation[0].owners)
+        sign_object(self.public_keys[1], self.private_keys[1], copied_op)
+
+        with self.assertRaisesRegex(Operation.VerifyError, "trying to create a minting operation for an existing uuid"):
+            copied_op.put()
+
+    def test_put_operation1(self):
+        sign_object(self.public_keys[0], self.private_keys[0], self.operation[0])
+        self.operation[0].put()
+
+        self.operation[1] = Operation._construct_with_uuid(OperationRev(),
+                                                           self.operation[0].uuid,
+                                                           self.operation[1].address,
+                                                           self.operation[1].owners)
+        sign_object(self.public_keys[0], self.private_keys[0], self.operation[1])
+
+        with self.assertRaisesRegex(Operation.UUIDError,
+                                    "UUID of the minting operation does not fulfill the requirements"):
             self.operation[1].put()
 
         self.operation[1] = Operation(OperationRev.from_obj(self.operation[0]),
-                                      self.operation[1].uuid,
                                       self.operation[1].address,
                                       self.operation[1].owners)
 
@@ -326,32 +332,26 @@ class TestOperationVerify(TestCase):
         self.operation[1].put()
 
     def test_put_operation_2(self):
-        self.operation[2] = Operation(OperationRev.from_id(sha256(b'wrong hash').digest()),
-                                      self.operation[2].uuid,
-                                      self.operation[2].address,
-                                      self.operation[2].owners)
-
-        sign_object(self.public_keys[1], self.private_keys[1], self.operation[2])
-
         with self.assertRaisesRegex(Operation.ChainError, "previous_operation_rev does not exist"):
-            self.operation[2].put()
+            self.operation[2] = Operation(OperationRev.from_id(
+                sha256(b'wrong hash').digest()), self.operation[2].address, self.operation[2].owners)
 
         sign_object(self.public_keys[0], self.private_keys[0], self.operation[1])
 
-        self.operation[2] = Operation(OperationRev.from_obj(self.operation[1]),
-                                      self.operation[2].uuid,
-                                      self.operation[2].address,
-                                      self.operation[2].owners)
+        self.operation[2] = Operation._construct_with_uuid(OperationRev.from_obj(self.operation[1]),
+                                                           self.operation[2].uuid,
+                                                           self.operation[2].address,
+                                                           self.operation[2].owners)
 
         sign_object(self.public_keys[1], self.private_keys[1], self.operation[2])
 
-        with self.assertRaisesRegex(Operation.VerifyError, "uuid mismatch"):
+        with self.assertRaisesRegex(Operation.UUIDError, "UUID mismatch"):
             self.operation[2].put()
 
-        self.operation[2] = Operation(OperationRev(),
-                                      self.operation[2].uuid,
-                                      self.operation[2].address,
-                                      self.operation[2].owners)
+        self.operation[2] = Operation._construct_with_uuid(OperationRev(),
+                                                           self.operation[2].uuid,
+                                                           self.operation[2].address,
+                                                           self.operation[2].owners)
 
         sign_object(self.public_keys[1], self.private_keys[1], self.operation[2])
         self.operation[2].put()
