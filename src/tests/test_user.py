@@ -35,7 +35,7 @@ class TestUser(TestCase):
         with self.assertRaisesRegex(Operation.VerifyError, "object is not signed"):
             op.verify()
 
-        user.sign_operation(op)
+        user.sign_object(op)
 
         self.assertTrue(op.verify())
         self.assertEqual(op.public_key, user._public_key)

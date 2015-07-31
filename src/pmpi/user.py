@@ -22,10 +22,10 @@ class User:
         """
         return cls(SigningKey.generate(curve=curve))
 
-    def sign_operation(self, operation):
+    def sign_object(self, obj):
         """
         Sign given operation by this user.
 
-        :param operation: operation to sign
+        :param obj: operation to sign
         """
-        sign_object(self._public_key, self._private_key, operation)
+        sign_object(self._public_key, self._private_key, obj)
